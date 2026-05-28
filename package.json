@@ -1,0 +1,14 @@
+{
+  "name": "owner-disbursement-platform",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test": "npm --prefix backend test",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ]
+}
