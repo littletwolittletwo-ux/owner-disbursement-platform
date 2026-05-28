@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 INSERT INTO users (email, password_hash)
-VALUES ('admin@example.com', '$2a$10$HYaQdCBpTl7L8rCWuFmZE.PB0IGJCY6BxUh2gq7WfZ2uZnl33RL2K')
+VALUES ('admin@example.com', '$2a$10$RB54zEWPhjWNnn738teeMObx/AlJhrCgJhlkdw9C/6gfAvwqrlRHy')
 ON CONFLICT (email) DO NOTHING;
 
 CREATE INDEX IF NOT EXISTS idx_reservations_month ON reservations(disbursement_month);
