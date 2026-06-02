@@ -3,18 +3,31 @@ import { insertReservations } from './reconciliation.js';
 
 const baseURL = 'https://api.hostaway.com/v1';
 
+async function getAccessToken() {
+  const res = await axios.post(
+    `${baseURL}/accessTokens`,
+    new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: process.env.HOSTAWAY_ACCOUNT_ID,
+      client_secret: process.env.HOSTAWAY_API_KEY
+    }).toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+  return res.data.access_token;
+}
+
 export async function syncHostaway() {
   if (!process.env.HOSTAWAY_API_KEY || !process.env.HOSTAWAY_ACCOUNT_ID) {
     return { skipped: true, reason: 'HOSTAWAY_API_KEY or HOSTAWAY_ACCOUNT_ID is not configured' };
   }
 
+  const token = await getAccessToken();
   const client = axios.create({
     baseURL,
     headers: {
-      Authorization: `Bearer ${process.env.HOSTAWAY_API_KEY}`,
+      Authorization: `Bearer ${token}`,
       'Cache-control': 'no-cache'
-    },
-    params: { accountId: process.env.HOSTAWAY_ACCOUNT_ID }
+    }
   });
 
   // Fetch listings
