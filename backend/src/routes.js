@@ -260,9 +260,10 @@ router.put('/trust-account-config', async (req, res) => {
 });
 
 // ── Hostaway Sync ──
-router.post('/hostaway/sync', async (_req, res, next) => {
+router.post('/hostaway/sync', async (req, res, next) => {
   try {
-    res.json(await syncHostaway());
+    const months = Number(req.query.months || req.body.months || 3);
+    res.json(await syncHostaway(months));
   } catch (error) {
     next(error);
   }

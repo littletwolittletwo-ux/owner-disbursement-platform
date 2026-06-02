@@ -16,7 +16,7 @@ async function getAccessToken() {
   return res.data.access_token;
 }
 
-export async function syncHostaway() {
+export async function syncHostaway(months = 3) {
   if (!process.env.HOSTAWAY_API_KEY || !process.env.HOSTAWAY_ACCOUNT_ID) {
     return { skipped: true, reason: 'HOSTAWAY_API_KEY or HOSTAWAY_ACCOUNT_ID is not configured' };
   }
@@ -27,19 +27,27 @@ export async function syncHostaway() {
     headers: {
       Authorization: `Bearer ${token}`,
       'Cache-control': 'no-cache'
-    }
+    },
+    timeout: 15000
   });
 
   // Fetch listings
   const listingRes = await client.get('/listings', { params: { limit: 200 } });
   const listings = listingRes.data?.result || [];
 
-  // Fetch reservations with pagination
+  // Only fetch reservations from the last N months to stay within serverless timeout
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - months);
+  const arrivalStartDate = startDate.toISOString().slice(0, 10);
+
+  // Fetch reservations with pagination and date filter
   let allReservations = [];
   let offset = 0;
   const limit = 100;
   while (true) {
-    const res = await client.get('/reservations', { params: { limit, offset } });
+    const res = await client.get('/reservations', {
+      params: { limit, offset, arrivalStartDate, sortOrder: 'desc' }
+    });
     const batch = res.data?.result || [];
     allReservations.push(...batch);
     if (batch.length < limit) break;
