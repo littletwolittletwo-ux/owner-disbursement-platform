@@ -8,20 +8,27 @@ export async function insertReservations(rows, sourceDocument = 'manual-upload')
     const listingRef = value(row, ['listing id', 'listing', 'listing name', 'hostaway listing id']);
     const listing = await findListing(listingRef);
     const platform = normalizePlatform(value(row, ['platform', 'channel']));
+    const cleaningFee = money(value(row, ['cleaning fee', 'cleaning', 'cleaning_fee']));
     const payout = calculatePayout({
       platform,
       checkIn: date(value(row, ['check in', 'check-in', 'arrival'])),
       checkOut: date(value(row, ['check out', 'check-out', 'departure'])),
       bookingDate: date(value(row, ['booking date', 'created at', 'reservation date'])),
-      grossAmount: money(value(row, ['gross payout', 'gross amount', 'gross'])),
-      platformFee: value(row, ['platform fee', 'fee'])
+      grossAmount: money(value(row, ['gross payout', 'gross amount', 'gross', 'total price'])),
+      platformFee: value(row, ['platform fee', 'fee', 'channel commission']),
+      cleaningFee
     }, listing?.platform_fee_rates || {});
+
+    const channelPayout = payout.netAfterPlatformFee;
     const result = await query(
       `INSERT INTO reservations
-       (listing_id, external_id, source, guest_name, platform, check_in, check_out, booking_date, gross_amount, platform_fee, net_amount, expected_payout_date, disbursement_month, raw_payload)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       (listing_id, external_id, source, guest_name, platform, check_in, check_out, booking_date,
+        gross_amount, platform_fee, net_amount, cleaning_fee, channel_payout,
+        expected_payout_date, disbursement_month, raw_payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (source, external_id) DO UPDATE SET
-       listing_id=EXCLUDED.listing_id, gross_amount=EXCLUDED.gross_amount, platform_fee=EXCLUDED.platform_fee, net_amount=EXCLUDED.net_amount,
+       listing_id=EXCLUDED.listing_id, gross_amount=EXCLUDED.gross_amount, platform_fee=EXCLUDED.platform_fee,
+       net_amount=EXCLUDED.net_amount, cleaning_fee=EXCLUDED.cleaning_fee, channel_payout=EXCLUDED.channel_payout,
        expected_payout_date=EXCLUDED.expected_payout_date, disbursement_month=EXCLUDED.disbursement_month, raw_payload=EXCLUDED.raw_payload
        RETURNING *`,
       [
@@ -30,12 +37,14 @@ export async function insertReservations(rows, sourceDocument = 'manual-upload')
         sourceDocument,
         value(row, ['guest name', 'guest']),
         platform,
-        payout.expectedPayoutDate ? date(value(row, ['check in', 'check-in', 'arrival'])) : null,
+        date(value(row, ['check in', 'check-in', 'arrival'])),
         date(value(row, ['check out', 'check-out', 'departure'])),
         date(value(row, ['booking date', 'created at', 'reservation date'])),
         payout.grossAmount,
         payout.platformFee,
         payout.netAfterPlatformFee,
+        payout.cleaningFee,
+        channelPayout,
         payout.expectedPayoutDate,
         payout.disbursementMonth,
         row
@@ -126,10 +135,15 @@ export async function autoMatch() {
     let count = 0;
     for (const tx of transactions.rows) {
       const match = reservations.rows.find((res) => {
-        const amountClose = Math.abs(Number(tx.amount) - Number(res.net_amount || res.gross_amount)) <= 2;
+        // Match on net_amount (channel payout) or gross_amount
+        const txAmount = Number(tx.amount);
+        const netClose = Math.abs(txAmount - Number(res.net_amount || 0)) <= 2;
+        const grossClose = Math.abs(txAmount - Number(res.gross_amount || 0)) <= 2;
         const channelMatch = normalizePlatform(tx.channel) === normalizePlatform(res.platform);
-        const dateClose = Math.abs((new Date(tx.transaction_date) - new Date(res.expected_payout_date)) / 86400000) <= 5;
-        return amountClose && channelMatch && dateClose;
+        const dateClose = res.expected_payout_date
+          ? Math.abs((new Date(tx.transaction_date) - new Date(res.expected_payout_date)) / 86400000) <= 5
+          : true;
+        return (netClose || grossClose) && channelMatch && dateClose;
       });
       if (match) {
         await client.query(
@@ -138,7 +152,15 @@ export async function autoMatch() {
           [tx.id, match.id, 0.92]
         );
         await client.query(`UPDATE trust_transactions SET status='matched' WHERE id=$1`, [tx.id]);
+        // Mark reservation as payout received
+        await client.query(
+          `UPDATE reservations SET payout_received=true, payout_received_date=$2 WHERE id=$1`,
+          [match.id, tx.transaction_date]
+        );
         count += 1;
+        // Remove matched reservation from candidates
+        const idx = reservations.rows.indexOf(match);
+        if (idx > -1) reservations.rows.splice(idx, 1);
       }
     }
     return count;
@@ -154,7 +176,26 @@ export async function findListing(ref) {
   return result.rows[0] || null;
 }
 
+export async function getUnmatchedCandidates(transactionId) {
+  const tx = (await query(`SELECT * FROM trust_transactions WHERE id=$1`, [transactionId])).rows[0];
+  if (!tx) return [];
+  const candidates = await query(
+    `SELECT r.*, l.name listing_name FROM reservations r
+     LEFT JOIN listings l ON l.id = r.listing_id
+     LEFT JOIN transaction_reservation_matches m ON m.reservation_id = r.id
+     WHERE m.id IS NULL
+     ORDER BY ABS(r.net_amount - $1) ASC LIMIT 20`,
+    [Number(tx.amount)]
+  );
+  return candidates.rows.map(r => ({
+    ...r,
+    amount_diff: roundCurrency(Math.abs(Number(r.net_amount) - Number(tx.amount))),
+    channel_match: normalizePlatform(tx.channel) === normalizePlatform(r.platform)
+  }));
+}
+
 export async function reconciliationSummary(month) {
+  const { start, end } = await import('../utils/dates.js').then(m => m.startEndForMonth(month));
   const [trust, reservations, owners, unmatched, pending] = await Promise.all([
     query(`SELECT channel, COALESCE(SUM(amount),0)::float total FROM trust_transactions WHERE to_char(transaction_date,'YYYY-MM')=$1 GROUP BY channel`, [month]),
     query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
@@ -163,7 +204,8 @@ export async function reconciliationSummary(month) {
            LEFT JOIN owners o ON o.id=l.owner_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
            LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE r.disbursement_month=$1 ORDER BY r.expected_payout_date`, [month]),
+           WHERE r.disbursement_month=$1 OR (r.check_out BETWEEN $2 AND $3)
+           ORDER BY r.expected_payout_date`, [month, start, end]),
     query(`SELECT d.*, o.name owner_name FROM disbursements d JOIN owners o ON o.id=d.owner_id WHERE d.month=$1 ORDER BY o.name`, [month]),
     query(`SELECT * FROM trust_transactions WHERE status='unmatched' AND to_char(transaction_date,'YYYY-MM')=$1 ORDER BY transaction_date`, [month]),
     query(`SELECT r.*, l.name listing_name FROM reservations r LEFT JOIN listings l ON l.id=r.listing_id
