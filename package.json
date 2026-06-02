@@ -1,6 +1,7 @@
 {
   "name": "owner-disbursement-platform",
   "private": true,
+  "type": "module",
   "version": "1.0.0",
   "scripts": {
     "test": "npm --prefix backend test",

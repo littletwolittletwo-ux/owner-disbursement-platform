@@ -19,7 +19,7 @@ import { calculateOwnerDisbursement, generateDisbursementPdf, bulkSend } from '.
 import { syncHostaway } from './services/hostaway.js';
 import { generateMonthlyAba } from './services/abaGenerator.js';
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: process.env.VERCEL ? '/tmp/uploads' : 'uploads/' });
 export const router = express.Router();
 
 function requireValid(req, res, next) {

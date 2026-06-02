@@ -5,8 +5,10 @@ dotenv.config();
 
 const { Pool } = pg;
 
+const connStr = process.env.DATABASE_URL || 'postgres://owner_app:owner_app_password@localhost:5432/owner_disbursements';
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://owner_app:owner_app_password@localhost:5432/owner_disbursements'
+  connectionString: connStr,
+  ssl: connStr.includes('neon.tech') ? { rejectUnauthorized: false } : undefined
 });
 
 export async function query(text, params = []) {
