@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiveLuxe — Trust Owner Disbursement Operations Manual</title>
+  <style>
+    :root {
+      --navy: #1a1f36;
+      --gold: #C8A97E;
+      --gold-light: #e8d5b7;
+      --bg: #fafafa;
+      --card: #ffffff;
+      --text: #2d2d2d;
+      --text-light: #6b7280;
+      --border: #e5e7eb;
+      --green: #059669;
+      --red: #dc2626;
+      --blue: #2563eb;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    .header {
+      background: var(--navy);
+      color: white;
+      padding: 48px 0 40px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .header::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(135deg, rgba(200,169,126,0.15) 0%, transparent 60%);
+    }
+
+    .header h1 {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header h1 span { color: var(--gold); }
+
+    .header .subtitle {
+      font-size: 18px;
+      color: var(--gold-light);
+      margin-top: 8px;
+      font-weight: 400;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header .version {
+      font-size: 13px;
+      color: rgba(255,255,255,0.5);
+      margin-top: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    .toc {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 40px;
+    }
+
+    .toc h2 {
+      font-size: 18px;
+      color: var(--navy);
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--gold);
+      display: inline-block;
+    }
+
+    .toc ol {
+      columns: 2;
+      column-gap: 32px;
+      padding-left: 20px;
+    }
+
+    .toc li {
+      padding: 4px 0;
+      font-size: 14px;
+    }
+
+    .toc a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    .toc a:hover { text-decoration: underline; }
+
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 24px;
+    }
+
+    section h2 {
+      font-size: 22px;
+      color: var(--navy);
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--gold);
+    }
+
+    section h3 {
+      font-size: 17px;
+      color: var(--navy);
+      margin: 24px 0 12px;
+    }
+
+    p { margin-bottom: 14px; }
+
+    ul, ol { margin: 0 0 16px 24px; }
+    li { margin-bottom: 6px; }
+
+    strong { color: var(--navy); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+
+    th {
+      background: var(--navy);
+      color: white;
+      text-align: left;
+      padding: 10px 14px;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    th:first-child { border-radius: 6px 0 0 0; }
+    th:last-child { border-radius: 0 6px 0 0; }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tr:nth-child(even) td { background: #f9fafb; }
+
+    .calc-box {
+      background: #1a1f36;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 28px 32px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 13.5px;
+      line-height: 2;
+      overflow-x: auto;
+      margin: 20px 0;
+    }
+
+    .calc-box .step { color: var(--gold); font-weight: 700; }
+    .calc-box .label { color: #94a3b8; }
+    .calc-box .amount { color: #34d399; font-weight: 600; }
+    .calc-box .deduct { color: #f87171; }
+    .calc-box .result { color: #fbbf24; font-weight: 700; }
+    .calc-box .divider { color: #475569; }
+    .calc-box .highlight { color: #ffffff; font-weight: 700; font-size: 14.5px; }
+
+    .callout {
+      border-left: 4px solid var(--gold);
+      background: #fefce8;
+      padding: 16px 20px;
+      border-radius: 0 8px 8px 0;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+
+    .callout.warning {
+      border-left-color: var(--red);
+      background: #fef2f2;
+    }
+
+    .callout.info {
+      border-left-color: var(--blue);
+      background: #eff6ff;
+    }
+
+    .callout.success {
+      border-left-color: var(--green);
+      background: #ecfdf5;
+    }
+
+    .callout strong { display: block; margin-bottom: 4px; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge.yes { background: #d1fae5; color: #065f46; }
+    .badge.no { background: #fee2e2; color: #991b1b; }
+
+    .checklist {
+      list-style: none;
+      margin-left: 0;
+      padding-left: 0;
+    }
+
+    .checklist li {
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .checklist .num {
+      background: var(--navy);
+      color: var(--gold);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .checklist .content { flex: 1; }
+    .checklist .action { font-weight: 600; color: var(--navy); }
+    .checklist .where { font-size: 13px; color: var(--text-light); }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 16px 0;
+    }
+
+    .two-col .col {
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .two-col .col h4 {
+      font-size: 14px;
+      color: var(--navy);
+      margin-bottom: 8px;
+    }
+
+    .url-box {
+      background: var(--navy);
+      color: white;
+      border-radius: 10px;
+      padding: 24px;
+      margin: 16px 0;
+    }
+
+    .url-box a {
+      color: var(--gold);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .url-box a:hover { text-decoration: underline; }
+
+    .url-box p { margin-bottom: 10px; color: #cbd5e1; }
+
+    .footer {
+      text-align: center;
+      padding: 40px 0;
+      color: var(--text-light);
+      font-size: 13px;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    @media print {
+      body { font-size: 12px; }
+      .header { padding: 24px 0; }
+      .header h1 { font-size: 24px; }
+      section { break-inside: avoid; page-break-inside: avoid; }
+      .container { padding: 0 16px; }
+    }
+
+    @media (max-width: 640px) {
+      .toc ol { columns: 1; }
+      .two-col { grid-template-columns: 1fr; }
+      .container { padding: 20px 16px 60px; }
+      section { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>LiveLuxe</span> Property Management</h1>
+  <div class="subtitle">Trust Owner Disbursement &mdash; Operations Manual</div>
+  <div class="version">v1.0 &middot; June 2026</div>
+</div>
+
+<div class="container">
+
+  <!-- TABLE OF CONTENTS -->
+  <div class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#manual-process">What Craig Used To Do</a></li>
+      <li><a href="#data-sources">Data Sources &amp; Inputs</a></li>
+      <li><a href="#reconciliation">Three-Way Reconciliation</a></li>
+      <li><a href="#conditions">Disbursement Conditions</a></li>
+      <li><a href="#payout-timing">Payout Timing by Platform</a></li>
+      <li><a href="#edge-case">End-of-Month Edge Case</a></li>
+      <li><a href="#calculation">The Calculation &mdash; Exact Order</a></li>
+      <li><a href="#worked-example">Worked Example</a></li>
+      <li><a href="#pdf-report">Owner Disbursement Report (PDF)</a></li>
+      <li><a href="#aba-export">ABA Export &amp; Payment</a></li>
+      <li><a href="#checklist">Monthly Process Checklist</a></li>
+      <li><a href="#commission">Commission Structure</a></li>
+      <li><a href="#channel-rates">Channel Commission Rates</a></li>
+      <li><a href="#costs">Recurring vs One-Off Costs</a></li>
+      <li><a href="#urls">Platform URLs</a></li>
+      <li><a href="#data-status">Current Data Status</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. OVERVIEW -->
+  <section id="overview">
+    <h2>1. Overview</h2>
+    <p>LiveLuxe manages 80+ short-term rental properties across Melbourne for 30+ owners. Each month, disbursements are processed to pay owners their share of booking income after all fees, commissions, and expenses are deducted.</p>
+    <p>Previously, this was done manually by an external accountant (Craig) who reconciled multiple data sources. This platform automates the entire process.</p>
+  </section>
+
+  <!-- 2. MANUAL PROCESS -->
+  <section id="manual-process">
+    <h2>2. What Craig Used To Do (Manual Process)</h2>
+    <p>Craig had access to:</p>
+    <ul>
+      <li><strong>Hostaway</strong> (his own API) &mdash; for reservation data, booking details, guest info</li>
+      <li><strong>Stripe secret key</strong> &mdash; for Hostaway direct bookings and VRBO payments</li>
+      <li><strong>Airbnb payout reports</strong> &mdash; showing when Airbnb paid out. Not reservation data, purely paid information. Payout reports for both accounts, first to last of the previous month</li>
+      <li><strong>Booking.com payout reports</strong> &mdash; same format, first to last of month</li>
+      <li><strong>Trust account bank statements</strong> &mdash; from first to last of the month</li>
+    </ul>
+    <p>Craig would manually reconcile these three data sources:</p>
+    <ol>
+      <li>The booking exists in Hostaway</li>
+      <li>You&rsquo;ve been paid out for that same reservation ID on the platform payout reports</li>
+      <li>The money has entered the trust bank account</li>
+    </ol>
+    <div class="callout success">
+      <strong>This three-way match is what the platform now automates.</strong>
+    </div>
+  </section>
+
+  <!-- 3. DATA SOURCES -->
+  <section id="data-sources">
+    <h2>3. Data Sources &amp; Inputs</h2>
+
+    <h3>3.1 Hostaway Sync (Automatic)</h3>
+    <ul>
+      <li>Pulls all reservations from Hostaway (Account 71167, 87 listings)</li>
+      <li>Captures: reservation ID, listing, guest name, check-in/out dates, gross amount, cleaning fee, platform</li>
+      <li><strong>Click &ldquo;Sync Hostaway&rdquo;</strong> on the dashboard</li>
+    </ul>
+
+    <h3>3.2 Platform Payout Reports (Upload)</h3>
+    <p>Every dollar amount paid out is linked to a reservation ID on Airbnb and Booking.com. These reports confirm what the platform actually paid you.</p>
+    <ul>
+      <li><strong>Airbnb payout report</strong> &mdash; export from Airbnb for the full previous month (1st to last)</li>
+      <li><strong>Booking.com payout report</strong> &mdash; export from Booking.com for the full previous month</li>
+      <li>Upload via the <strong>&ldquo;Trust Statement&rdquo;</strong> uploader</li>
+    </ul>
+
+    <h3>3.3 Trust Account Bank Statement (Upload)</h3>
+    <ul>
+      <li>Export CSV from your bank (NAB) for the month, 1st to last</li>
+      <li>This is the definitive record of money entering the trust account</li>
+      <li>Upload via <strong>&ldquo;Trust Statement&rdquo;</strong> uploader</li>
+      <li>Format: Date | Description/Narrative | Amount</li>
+    </ul>
+
+    <h3>3.4 Expenses (Upload or Manual Entry)</h3>
+    <ul>
+      <li>One-off expenses paid on behalf of owners</li>
+      <li>Found in the Slack channel &ldquo;owners&rdquo; and emails to accounts@liveluxeau.com</li>
+      <li>Upload via <strong>&ldquo;Expenses&rdquo;</strong> uploader or enter manually</li>
+      <li>Includes: OC fees, strata fees, water, internet, electricity, pictures, repairs</li>
+    </ul>
+  </section>
+
+  <!-- 4. RECONCILIATION -->
+  <section id="reconciliation">
+    <h2>4. The Three-Way Reconciliation</h2>
+    <p>A booking is only considered &ldquo;confirmed for payout&rdquo; when <strong>ALL THREE</strong> match:</p>
+
+    <table>
+      <thead>
+        <tr><th>Check</th><th>Source</th><th>What It Proves</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>1. Booking exists</strong></td><td>Hostaway</td><td>The reservation is real and has details</td></tr>
+        <tr><td><strong>2. Platform paid out</strong></td><td>Airbnb / Booking.com payout report</td><td>The platform sent the money</td></tr>
+        <tr><td><strong>3. Money entered trust</strong></td><td>Bank statement</td><td>The money actually arrived</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How the platform does this:</h3>
+    <ol>
+      <li><strong>Auto-Match</strong> &mdash; After uploading bank statements, click &ldquo;Auto-Match&rdquo;. The system matches bank entries to Hostaway reservations by amount, date proximity, and guest name similarity</li>
+      <li><strong>Manual Match</strong> &mdash; Any unmatched bank entries appear in the &ldquo;Unmatched Payments&rdquo; section. Click &ldquo;Match&rdquo; to manually link them to the correct reservation</li>
+      <li>Once matched, the reservation is flagged as <strong>payout_received = true</strong></li>
+    </ol>
+  </section>
+
+  <!-- 5. CONDITIONS -->
+  <section id="conditions">
+    <h2>5. Disbursement Conditions &mdash; BOTH Required</h2>
+
+    <div class="callout warning">
+      <strong>An owner only gets paid for a booking when BOTH conditions are true.</strong>
+      Missing either one means the booking rolls to the next month.
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Condition</th><th>Rule</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Booking has elapsed</strong></td><td>The guest has checked out on or before the last day of that month</td></tr>
+        <tr><td><strong>Payout received in trust</strong></td><td>The money from that booking has entered the trust bank account during that month</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Why both matter:</h3>
+    <table>
+      <thead>
+        <tr><th>Scenario</th><th>Booking Elapsed?</th><th>Payout Received?</th><th>In Disbursement?</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Booking finishes May, money arrives June</td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge no">Not May</span></td>
+        </tr>
+        <tr>
+          <td>Money arrives May, guest checks out June</td>
+          <td><span class="badge no">No</span></td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge no">Not May</span></td>
+        </tr>
+        <tr>
+          <td>Both happen in May</td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge yes">Yes</span></td>
+          <td><span class="badge yes">May</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 6. PAYOUT TIMING -->
+  <section id="payout-timing">
+    <h2>6. Payout Timing by Platform</h2>
+    <p>Each platform has different payout schedules. This is critical for understanding which month a payout falls into.</p>
+
+    <table>
+      <thead>
+        <tr><th>Platform</th><th>Payout Timing</th><th>Weekend Rule</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Airbnb</strong></td><td>1 business day after <strong>check-in</strong></td><td>Sat/Sun &rarr; Monday</td></tr>
+        <tr><td><strong>Booking.com</strong></td><td>Following Friday after <strong>checkout</strong></td><td>Always lands on Friday</td></tr>
+        <tr><td><strong>VRBO</strong></td><td>Based on booking confirmation date</td><td>Standard business days</td></tr>
+        <tr><td><strong>Direct</strong></td><td>Collected at booking via Stripe</td><td>Immediately available</td></tr>
+      </tbody>
+    </table>
+
+    <div class="two-col">
+      <div class="col">
+        <h4>Airbnb Examples</h4>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li>Check-in Monday &rarr; Payout Tuesday</li>
+          <li>Check-in Friday &rarr; Payout Monday</li>
+          <li>Check-in Saturday &rarr; Payout Monday</li>
+          <li>Check-in Sunday &rarr; Payout Monday</li>
+        </ul>
+      </div>
+      <div class="col">
+        <h4>Booking.com Examples</h4>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li>Checkout Monday &rarr; Payout Friday (same week)</li>
+          <li>Checkout Thursday &rarr; Payout Friday (next day)</li>
+          <li>Checkout Friday &rarr; Payout next Friday</li>
+          <li>Checkout Saturday &rarr; Payout next Friday</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. EDGE CASE -->
+  <section id="edge-case">
+    <h2>7. The End-of-Month Edge Case</h2>
+
+    <div class="callout warning">
+      <strong>This is the most important edge case to understand.</strong>
+      End-of-month weekends can push payouts to the next month even when the booking starts and finishes within the current month.
+    </div>
+
+    <p><strong>Scenario:</strong> February 28 is a Sunday, February 27 is Saturday, February 26 is Friday. Three non-business days in a row at the end of the month.</p>
+
+    <div class="two-col">
+      <div class="col" style="border-left: 4px solid #059669;">
+        <h4>Included in February</h4>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li>Check-in: Feb 25 (Thu)</li>
+          <li>Check-out: Feb 26 (Fri)</li>
+          <li>Airbnb pays: Feb 26 (Fri)</li>
+          <li>Booking elapsed: <span class="badge yes">Yes</span></li>
+          <li>Payout received: <span class="badge yes">Yes</span></li>
+        </ul>
+      </div>
+      <div class="col" style="border-left: 4px solid #dc2626;">
+        <h4>Rolls to March</h4>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li>Check-in: Feb 26 (Fri)</li>
+          <li>Check-out: Feb 27 (Sat)</li>
+          <li>Airbnb pays: Mar 1 (Mon)</li>
+          <li>Booking elapsed: <span class="badge yes">Yes</span></li>
+          <li>Payout received: <span class="badge no">No (March)</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <p>Even though both bookings start and finish in February, the second one&rsquo;s payout doesn&rsquo;t land until March because the next business day after Friday is Monday&mdash;which falls in the next month.</p>
+  </section>
+
+  <!-- 8. CALCULATION -->
+  <section id="calculation">
+    <h2>8. The Calculation &mdash; Exact Order</h2>
+    <p>This is the precise order of deductions. Getting this wrong changes every number downstream.</p>
+
+    <div class="calc-box">
+      <span class="step">STEP 1:</span> <span class="highlight">GROSS BOOKING AMOUNT</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(What the guest paid in total)</span><br>
+      <br>
+      <span class="step">STEP 2:</span> <span class="deduct">&minus; Channel Commission</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Airbnb: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;16.5% of gross<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Booking.com: 16.5% of gross<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; VRBO: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;12.0% of gross<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Direct: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.0%<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">────────────────────────────</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="result">= CHANNEL PAYOUT</span> <span class="label">(enters trust)</span><br>
+      <br>
+      <span class="step">STEP 3:</span> <span class="deduct">&minus; Cleaning Fee</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(Owner pays the cleaner &mdash; this is their cost)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">────────────────────────────</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="highlight">= NET INCOME TO OWNER</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(Pure income after payout and cleaning. This is what appears on the report.)</span><br>
+      <br>
+      <span class="step">STEP 4:</span> <span class="deduct">&minus; Management Fee (18% of net income)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; GST on Management Fee (10% of mgmt fee)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(Commission is 18% + GST = effectively 19.8% of net income)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">────────────────────────────</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="result">= AFTER MANAGEMENT</span><br>
+      <br>
+      <span class="step">STEP 5:</span> <span class="deduct">&minus; Software Fee ($65.99/property/month)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(Covers KeyNest + PriceLabs + Enso)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">────────────────────────────</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="result">= AFTER SOFTWARE</span><br>
+      <br>
+      <span class="step">STEP 6:</span> <span class="deduct">&minus; One-Off Expenses</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(OC, strata, water, internet, electricity, repairs)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">(POST management fee &mdash; you should NOT earn less</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="label">&nbsp;commission because an owner has high expenses)</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">────────────────────────────</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="highlight">= FINAL OWNER PAYOUT</span>
+    </div>
+
+    <div class="callout">
+      <strong>Why cleaning is BEFORE management fee:</strong>
+      The cleaning fee is a pass-through cost to the owner. The owner pays the cleaner. Your management commission is on the net income (after cleaning), not on the gross.
+    </div>
+
+    <div class="callout">
+      <strong>Why expenses are AFTER management fee:</strong>
+      You (LiveLuxe) are choosing to help owners pay their bills. You should not be punished (earn less commission) because an owner has high expenses. Expenses are the owner&rsquo;s running costs, completely separate from your commission base. Same principle applies to pictures, repairs, and any one-off costs.
+    </div>
+  </section>
+
+  <!-- 9. WORKED EXAMPLE -->
+  <section id="worked-example">
+    <h2>9. Worked Example</h2>
+    <p><strong>Booking:</strong> Airbnb, guest pays $1,000, cleaning fee $120</p>
+
+    <div class="calc-box">
+      Gross booking: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="amount">$1,000.00</span><br>
+      Channel commission (16.5%): &nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; &nbsp; $165.00</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">──────────</span><br>
+      Channel payout (enters trust): &nbsp;&nbsp;&nbsp; <span class="amount">&nbsp; $835.00</span><br>
+      Cleaning fee: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; &nbsp; $120.00</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">──────────</span><br>
+      <span class="highlight">NET INCOME TO OWNER: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp; $715.00</span> &nbsp; <span class="label">&larr; appears on report</span><br>
+      <br>
+      Management fee (18%): &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; &nbsp; $128.70</span><br>
+      GST on management fee (10%): &nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; &nbsp; &nbsp;$12.87</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">──────────</span><br>
+      After management: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="amount">&nbsp; $573.43</span><br>
+      <br>
+      Software fee: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; &nbsp; &nbsp;$65.99</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">──────────</span><br>
+      After software: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="amount">&nbsp; $507.44</span><br>
+      <br>
+      Expenses (e.g. water bill): &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="deduct">&minus; &nbsp; &nbsp;$85.00</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="divider">──────────</span><br>
+      <span class="highlight">FINAL OWNER PAYOUT: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp; $422.44</span>
+    </div>
+  </section>
+
+  <!-- 10. PDF REPORT -->
+  <section id="pdf-report">
+    <h2>10. Owner Disbursement Report (PDF)</h2>
+    <p>The PDF sent to each owner contains:</p>
+
+    <table>
+      <thead>
+        <tr><th>Section</th><th>Contents</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Header</strong></td><td>LiveLuxe branding, disbursement period (e.g. &ldquo;May 2026&rdquo;), owner name</td></tr>
+        <tr><td><strong>Booking Income</strong></td><td>Per-property table: dates, guest, platform, gross, channel fee, payout</td></tr>
+        <tr><td><strong>Cleaning Fees</strong></td><td>Total cleaning fees deducted across all bookings</td></tr>
+        <tr><td><strong>Net Income</strong></td><td>Channel payout minus cleaning = pure income to owner</td></tr>
+        <tr><td><strong>Management Fee</strong></td><td>Base (18% of net income) + GST (10% of mgmt fee) shown separately</td></tr>
+        <tr><td><strong>Monthly Charges</strong></td><td>Software fee: $65.99 per active property</td></tr>
+        <tr><td><strong>Expenses</strong></td><td>Itemised list: OC, strata, water, internet, electricity, repairs</td></tr>
+        <tr><td><strong>Final Payout</strong></td><td><strong>Bold total in AUD &mdash; the amount being paid to the owner</strong></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 11. ABA EXPORT -->
+  <section id="aba-export">
+    <h2>11. ABA Export &amp; Payment</h2>
+    <p>Once all disbursements are calculated and reviewed:</p>
+    <ol>
+      <li><strong>Generate ABA file</strong> &mdash; Click &ldquo;Download ABA&rdquo; for the month</li>
+      <li><strong>Upload to NavConnect</strong> &mdash; Log into NAB&rsquo;s business banking, upload the .aba file as a batch payment</li>
+      <li><strong>Authorise</strong> &mdash; The ABA export only works on the day you generate the report. Once actioned, payments are sent to all owners at once</li>
+      <li><strong>Send emails</strong> &mdash; Disbursement PDF emails sent to each owner with booking breakdowns, net income, reservation dates, and all deductions</li>
+    </ol>
+
+    <h3>ABA File Format</h3>
+    <ul>
+      <li>Australian Banking Association fixed-width text file (120 characters per line)</li>
+      <li>Header (Type 0): Trust account BSB, account name, bank code, processing date</li>
+      <li>Detail records (Type 1): One line per owner &mdash; BSB, account number, payout amount, owner name</li>
+      <li>Footer (Type 7): Total amount, record count, hash total</li>
+    </ul>
+
+    <div class="callout info">
+      <strong>Before first use:</strong> Set up your trust account details in the Setup tab &mdash; BSB, Account Number, Account Name, Bank Name (NAB), Financial Institution Code, APCA User ID (assigned by your bank).
+    </div>
+  </section>
+
+  <!-- 12. CHECKLIST -->
+  <section id="checklist">
+    <h2>12. Monthly Process Checklist</h2>
+    <ol class="checklist">
+      <li>
+        <div class="num">1</div>
+        <div class="content">
+          <div class="action">Sync bookings</div>
+          <div class="where">Click &ldquo;Sync Hostaway&rdquo; &mdash; Dashboard</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">2</div>
+        <div class="content">
+          <div class="action">Upload Airbnb payout report</div>
+          <div class="where">Upload CSV (1st&ndash;last of month) &mdash; Trust Statement uploader</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">3</div>
+        <div class="content">
+          <div class="action">Upload Booking.com payout report</div>
+          <div class="where">Upload CSV (1st&ndash;last of month) &mdash; Trust Statement uploader</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">4</div>
+        <div class="content">
+          <div class="action">Upload trust bank statement</div>
+          <div class="where">Export trust account CSV, upload &mdash; Trust Statement uploader</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">5</div>
+        <div class="content">
+          <div class="action">Run auto-match</div>
+          <div class="where">Click &ldquo;Auto-Match&rdquo; &mdash; Dashboard</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">6</div>
+        <div class="content">
+          <div class="action">Review unmatched entries</div>
+          <div class="where">Manually match remaining entries &mdash; Unmatched Payments section</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">7</div>
+        <div class="content">
+          <div class="action">Upload expenses</div>
+          <div class="where">Upload or enter one-off owner expenses &mdash; Expenses uploader</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">8</div>
+        <div class="content">
+          <div class="action">Calculate disbursements</div>
+          <div class="where">Select month, calculate for all owners &mdash; Disbursement section</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">9</div>
+        <div class="content">
+          <div class="action">Review summaries</div>
+          <div class="where">Check each owner&rsquo;s breakdown is correct &mdash; Expandable rows</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">10</div>
+        <div class="content">
+          <div class="action">Download ABA file</div>
+          <div class="where">Click &ldquo;Download ABA&rdquo; &mdash; Dashboard</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">11</div>
+        <div class="content">
+          <div class="action">Upload to NavConnect</div>
+          <div class="where">Upload .aba to NAB business banking &mdash; NAB portal</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">12</div>
+        <div class="content">
+          <div class="action">Authorise payment</div>
+          <div class="where">Approve batch payment &mdash; NAB portal</div>
+        </div>
+      </li>
+      <li>
+        <div class="num">13</div>
+        <div class="content">
+          <div class="action">Send owner emails</div>
+          <div class="where">Click &ldquo;Send Emails&rdquo; &mdash; Dashboard</div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 13. COMMISSION -->
+  <section id="commission">
+    <h2>13. Commission Structure</h2>
+    <table>
+      <thead>
+        <tr><th>Item</th><th>Rate</th><th>Applied To</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Management fee</td><td><strong>18%</strong></td><td>Net income (after channel fee and cleaning)</td></tr>
+        <tr><td>GST on management</td><td><strong>10%</strong> of management fee</td><td>Management fee amount</td></tr>
+        <tr><td>Effective total</td><td><strong>19.8%</strong></td><td>Net income</td></tr>
+      </tbody>
+    </table>
+    <p>Commission rules are per-owner and can be customised in the Setup tab. Default is 18% <code>au_management</code> type for all owners.</p>
+  </section>
+
+  <!-- 14. CHANNEL RATES -->
+  <section id="channel-rates">
+    <h2>14. Channel Commission Rates</h2>
+    <table>
+      <thead>
+        <tr><th>Platform</th><th>Commission</th><th>Who Deducts It</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Airbnb</td><td><strong>16.5%</strong></td><td>Airbnb (before payout)</td></tr>
+        <tr><td>Booking.com</td><td><strong>16.5%</strong></td><td>Booking.com (before payout)</td></tr>
+        <tr><td>VRBO</td><td><strong>12.0%</strong></td><td>VRBO (before payout)</td></tr>
+        <tr><td>Direct</td><td><strong>0%</strong></td><td>N/A</td></tr>
+      </tbody>
+    </table>
+    <p>These are deducted by the platform before the money reaches your trust account. The gross amount is what the guest paid; the channel payout is what you actually receive.</p>
+  </section>
+
+  <!-- 15. COSTS -->
+  <section id="costs">
+    <h2>15. Recurring vs One-Off Costs</h2>
+
+    <div class="two-col">
+      <div class="col">
+        <h4>Recurring (Monthly)</h4>
+        <table>
+          <thead><tr><th>Fee</th><th>Amount</th><th>Per</th></tr></thead>
+          <tbody><tr><td>Software fee</td><td><strong>$65.99</strong></td><td>Per property/month</td></tr></tbody>
+        </table>
+        <p style="font-size:13px; color:#6b7280; margin-top:8px;">Covers: KeyNest + PriceLabs + Enso. LiveLuxe absorbs the difference on some properties.</p>
+      </div>
+      <div class="col">
+        <h4>One-Off (As Incurred)</h4>
+        <ul style="font-size:13px; margin-bottom:0;">
+          <li>OC fees (owners corporation)</li>
+          <li>Strata fees (body corporate)</li>
+          <li>Water bills</li>
+          <li>Internet</li>
+          <li>Electricity</li>
+          <li>Repairs / maintenance</li>
+          <li>Photography</li>
+        </ul>
+      </div>
+    </div>
+
+    <p>Source: Slack &ldquo;owners&rdquo; channel + emails to accounts@liveluxeau.com</p>
+
+    <div class="callout">
+      <strong>Key rule:</strong> All one-off expenses are deducted AFTER management fee. LiveLuxe should not earn less commission because an owner has high running costs. Expenses are the owner&rsquo;s costs &mdash; you&rsquo;re choosing to help them pay their bills, therefore you should not be punished for it.
+    </div>
+  </section>
+
+  <!-- 16. URLS -->
+  <section id="urls">
+    <h2>16. Platform URLs</h2>
+    <div class="url-box">
+      <p><strong>Live Platform:</strong> <a href="https://owner-disbursement-platform.vercel.app">https://owner-disbursement-platform.vercel.app</a></p>
+      <p><strong>Login:</strong> admin@example.com / admin123</p>
+      <p><strong>GitHub (Primary):</strong> <a href="https://github.com/littletwolittletwo-ux/owner-disbursement-platform">owner-disbursement-platform</a></p>
+      <p><strong>GitHub (Reference):</strong> <a href="https://github.com/littletwolittletwo-ux/owner-disbursement-platform-reference">owner-disbursement-platform-reference</a></p>
+    </div>
+  </section>
+
+  <!-- 17. DATA STATUS -->
+  <section id="data-status">
+    <h2>17. Current Data Status (June 2026)</h2>
+    <table>
+      <thead>
+        <tr><th>Metric</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Owners seeded</td><td><strong>24</strong> with contact details</td></tr>
+        <tr><td>Listings mapped</td><td><strong>30</strong> with Hostaway listing IDs</td></tr>
+        <tr><td>Hostaway listings detected</td><td><strong>87</strong> (many managed properties not yet assigned)</td></tr>
+        <tr><td>Reservations synced</td><td><strong>3,251</strong> (last 2 months)</td></tr>
+        <tr><td>May bookings mapped to owners</td><td><strong>186</strong> across 28 properties</td></tr>
+        <tr><td>May gross booking value</td><td><strong>~$139,000 AUD</strong></td></tr>
+        <tr><td>Commission rules</td><td>18% <code>au_management</code> for all owners</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="footer">
+    LiveLuxe Property Management &middot; Disbursement Operations Manual v1.0 &middot; June 2026
+  </div>
+
+</div>
+
+</body>
+</html>
