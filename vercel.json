@@ -8,7 +8,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 60,
-      "includeFiles": ["backend/**", "LiveLuxe-Owner-Disbursement-Guide.pdf"]
+      "includeFiles": "backend/**"
     }
   }
 }

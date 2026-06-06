@@ -518,7 +518,11 @@ export async function bulkSend(month) {
 function getGuideAttachment() {
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const guidePath = path.join(__dirname, '../../../LiveLuxe-Owner-Disbursement-Guide.pdf');
+    // Try backend/ first (Vercel bundle), then repo root (local dev)
+    let guidePath = path.join(__dirname, '../../LiveLuxe-Owner-Disbursement-Guide.pdf');
+    if (!fs.existsSync(guidePath)) {
+      guidePath = path.join(__dirname, '../../../LiveLuxe-Owner-Disbursement-Guide.pdf');
+    }
     const guideBuffer = fs.readFileSync(guidePath);
     return [{
       Name: 'LiveLuxe-Owner-Disbursement-Guide.pdf',
