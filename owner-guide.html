@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LiveLuxe — Owner Disbursement Guide</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm 16mm 22mm 16mm;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      color: #1a1f36;
+      font-size: 10.5pt;
+      line-height: 1.6;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ── Cover ── */
+    .cover {
+      page-break-after: always;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 60px 40px;
+      background: linear-gradient(170deg, #1a1f36 0%, #2d3250 100%);
+      color: white;
+    }
+
+    .cover-logo {
+      font-size: 48pt;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+    }
+
+    .cover-logo span { color: #C8A97E; }
+
+    .cover-bar {
+      width: 100px;
+      height: 3px;
+      background: #C8A97E;
+      margin: 28px auto;
+    }
+
+    .cover-title {
+      font-size: 24pt;
+      font-weight: 300;
+      color: #e2e8f0;
+    }
+
+    .cover-sub {
+      font-size: 13pt;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+
+    .cover-footer {
+      margin-top: 100px;
+      font-size: 10pt;
+      color: #64748b;
+    }
+
+    /* ── Page header ── */
+    .ph {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #C8A97E;
+      margin-bottom: 20px;
+    }
+
+    .ph-brand { font-size: 10pt; font-weight: 700; }
+    .ph-brand span { color: #C8A97E; }
+    .ph-label { font-size: 8.5pt; color: #9ca3af; }
+
+    /* ── Headings ── */
+    h1 {
+      font-size: 19pt;
+      font-weight: 700;
+      color: #1a1f36;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #C8A97E;
+    }
+
+    h2 {
+      font-size: 13pt;
+      font-weight: 700;
+      color: #1a1f36;
+      margin: 22px 0 10px;
+    }
+
+    h2:first-child { margin-top: 0; }
+
+    h3 {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #374151;
+      margin: 16px 0 6px;
+    }
+
+    p { margin-bottom: 9px; }
+    ul, ol { margin: 0 0 10px 18px; }
+    li { margin-bottom: 4px; }
+    strong { color: #1a1f36; }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 9.5pt;
+    }
+
+    th {
+      background: #1a1f36;
+      color: #fff;
+      text-align: left;
+      padding: 7px 10px;
+      font-weight: 600;
+      font-size: 8.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td { background: #f9fafb; }
+
+    /* ── Calc box ── */
+    .calc {
+      background: #1a1f36;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 18px 22px;
+      font-family: 'Courier New', monospace;
+      font-size: 9.5pt;
+      line-height: 1.85;
+      margin: 14px 0;
+      page-break-inside: avoid;
+    }
+
+    .calc .g { color: #C8A97E; font-weight: 700; }
+    .calc .v { color: #34d399; font-weight: 600; }
+    .calc .r { color: #f87171; }
+    .calc .d { color: #475569; }
+    .calc .w { color: #fff; font-weight: 700; }
+
+    /* ── Callout ── */
+    .co {
+      border-left: 4px solid #C8A97E;
+      background: #fefce8;
+      padding: 12px 16px;
+      border-radius: 0 6px 6px 0;
+      margin: 14px 0;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+
+    .co.blue { border-left-color: #2563eb; background: #eff6ff; }
+    .co.green { border-left-color: #059669; background: #ecfdf5; }
+    .co.red { border-left-color: #dc2626; background: #fef2f2; }
+    .co strong { display: block; margin-bottom: 2px; }
+
+    /* ── Two col ── */
+    .cols {
+      display: flex;
+      gap: 12px;
+      margin: 12px 0;
+    }
+
+    .col {
+      flex: 1;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 12px;
+    }
+
+    .col h4 { font-size: 9.5pt; color: #1a1f36; margin-bottom: 6px; }
+    .col ul { font-size: 9pt; margin-bottom: 0; }
+
+    /* ── Badges ── */
+    .yes { display: inline-block; background: #d1fae5; color: #065f46; padding: 1px 8px; border-radius: 10px; font-size: 8.5pt; font-weight: 600; }
+    .no { display: inline-block; background: #fee2e2; color: #991b1b; padding: 1px 8px; border-radius: 10px; font-size: 8.5pt; font-weight: 600; }
+
+    /* ── Page break ── */
+    .pb { page-break-before: always; }
+    .nb { page-break-inside: avoid; }
+
+    /* ── TOC ── */
+    .toc {
+      page-break-after: always;
+    }
+
+    .toc-title {
+      font-size: 19pt;
+      font-weight: 700;
+      color: #1a1f36;
+      margin-bottom: 24px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #C8A97E;
+    }
+
+    .toc-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .toc-list li {
+      display: flex;
+      align-items: baseline;
+      padding: 10px 0;
+      border-bottom: 1px dotted #d1d5db;
+    }
+
+    .toc-num {
+      width: 32px;
+      font-weight: 700;
+      color: #C8A97E;
+      font-size: 11pt;
+      flex-shrink: 0;
+    }
+
+    .toc-text {
+      flex: 1;
+      font-size: 11pt;
+      font-weight: 600;
+      color: #1a1f36;
+    }
+
+    .toc-text a {
+      color: #1a1f36;
+      text-decoration: none;
+    }
+
+    .toc-desc {
+      font-weight: 400;
+      font-size: 9pt;
+      color: #6b7280;
+      display: block;
+      margin-top: 2px;
+    }
+
+    .toc-page {
+      font-size: 11pt;
+      color: #C8A97E;
+      font-weight: 700;
+      width: 30px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .toc-highlight {
+      background: #fef3c7;
+      border: 2px solid #C8A97E;
+      border-radius: 6px;
+      padding: 3px 8px;
+      margin: -3px -8px;
+    }
+
+    /* ── Rule box (highlighted) ── */
+    .rule-box {
+      background: #1a1f36;
+      border: 3px solid #C8A97E;
+      border-radius: 10px;
+      padding: 20px 24px;
+      color: white;
+      margin: 16px 0;
+      page-break-inside: avoid;
+    }
+
+    .rule-box h3 {
+      color: #C8A97E;
+      font-size: 12pt;
+      margin: 0 0 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .rule-box p { color: #e2e8f0; margin-bottom: 8px; }
+    .rule-box strong { color: #ffffff; }
+    .rule-box .num { color: #C8A97E; font-weight: 700; font-size: 14pt; margin-right: 8px; }
+
+    /* ── Diagram styles ── */
+    .diagram {
+      margin: 16px 0;
+      page-break-inside: avoid;
+    }
+
+    .timeline {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      margin: 10px 0;
+    }
+
+    .tl-month {
+      flex: 1;
+      text-align: center;
+      position: relative;
+    }
+
+    .tl-label {
+      font-size: 10pt;
+      font-weight: 700;
+      color: #1a1f36;
+      padding: 6px 0;
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+    }
+
+    .tl-label.active {
+      background: #1a1f36;
+      color: #C8A97E;
+      border-color: #1a1f36;
+    }
+
+    .tl-days {
+      display: flex;
+      border-left: 1px solid #e5e7eb;
+      min-height: 32px;
+    }
+
+    .tl-day {
+      flex: 1;
+      font-size: 7pt;
+      text-align: center;
+      padding: 3px 0;
+      border-right: 1px solid #f3f4f6;
+      border-bottom: 1px solid #e5e7eb;
+      color: #9ca3af;
+    }
+
+    .tl-day.weekend { background: #fef2f2; color: #fca5a5; }
+    .tl-day.hl { background: #ecfdf5; color: #059669; font-weight: 600; }
+    .tl-day.hl2 { background: #eff6ff; color: #2563eb; font-weight: 600; }
+    .tl-day.hl3 { background: #fef3c7; color: #d97706; font-weight: 600; }
+
+    /* ── Booking bar diagram ── */
+    .bar-diagram {
+      margin: 14px 0;
+      page-break-inside: avoid;
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 9pt;
+    }
+
+    .bar-label {
+      width: 120px;
+      text-align: right;
+      padding-right: 10px;
+      font-weight: 600;
+      font-size: 8.5pt;
+      color: #374151;
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 28px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      position: relative;
+      display: flex;
+      border: 1px solid #e5e7eb;
+    }
+
+    .bar-fill {
+      position: absolute;
+      height: 100%;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 7.5pt;
+      font-weight: 600;
+      color: white;
+    }
+
+    .bar-fill.stay { background: #2563eb; }
+    .bar-fill.payout { background: #059669; }
+    .bar-fill.payout-late { background: #dc2626; }
+    .bar-fill.cleaning { background: #7c3aed; }
+
+    .bar-mid {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #1a1f36;
+      z-index: 10;
+    }
+
+    .bar-mid-label {
+      position: absolute;
+      top: -16px;
+      font-size: 7pt;
+      font-weight: 700;
+      color: #1a1f36;
+      white-space: nowrap;
+      transform: translateX(-50%);
+    }
+
+    /* ── Calendar grid ── */
+    .cal {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+      margin: 10px 0;
+      font-size: 8.5pt;
+    }
+
+    .cal-head {
+      text-align: center;
+      font-weight: 700;
+      color: #6b7280;
+      padding: 4px 0;
+      font-size: 8pt;
+      text-transform: uppercase;
+    }
+
+    .cal-day {
+      text-align: center;
+      padding: 5px 2px;
+      border: 1px solid #e5e7eb;
+      border-radius: 3px;
+      background: white;
+      min-height: 28px;
+    }
+
+    .cal-day.empty { border: none; background: transparent; }
+    .cal-day.weekend { background: #fef2f2; }
+    .cal-day.checkin { background: #dbeafe; border-color: #2563eb; font-weight: 700; color: #1e40af; }
+    .cal-day.checkout { background: #e0e7ff; border-color: #4f46e5; font-weight: 700; color: #3730a3; }
+    .cal-day.payout { background: #d1fae5; border-color: #059669; font-weight: 700; color: #065f46; }
+    .cal-day.payout-miss { background: #fee2e2; border-color: #dc2626; font-weight: 700; color: #991b1b; }
+    .cal-day.stay { background: #eff6ff; }
+    .cal-day.next-month { color: #d1d5db; }
+
+    .cal-legend {
+      display: flex;
+      gap: 14px;
+      margin: 8px 0;
+      font-size: 8pt;
+      flex-wrap: wrap;
+    }
+
+    .cal-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .cal-legend-box {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid #d1d5db;
+    }
+
+    /* ── Flow diagram ── */
+    .flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 14px 0;
+      page-break-inside: avoid;
+    }
+
+    .flow-box {
+      background: #f9fafb;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+      font-size: 8.5pt;
+      min-width: 80px;
+    }
+
+    .flow-box strong { display: block; font-size: 10pt; color: #1a1f36; }
+    .flow-box.highlight { border-color: #C8A97E; background: #fefce8; }
+    .flow-box.result { border-color: #059669; background: #ecfdf5; }
+
+    .flow-arrow {
+      font-size: 14pt;
+      color: #C8A97E;
+      font-weight: 700;
+    }
+
+    /* ── Step waterfall ── */
+    .waterfall {
+      margin: 14px 0;
+      page-break-inside: avoid;
+    }
+
+    .wf-row {
+      display: flex;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .wf-step {
+      width: 28px;
+      height: 28px;
+      background: #1a1f36;
+      color: #C8A97E;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9pt;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-right: 10px;
+    }
+
+    .wf-desc { flex: 1; font-size: 9.5pt; }
+    .wf-op { width: 20px; text-align: center; font-weight: 700; color: #dc2626; font-size: 11pt; }
+    .wf-amt { width: 90px; text-align: right; font-family: 'Courier New', monospace; font-size: 10pt; font-weight: 600; }
+    .wf-amt.pos { color: #059669; }
+    .wf-amt.neg { color: #dc2626; }
+    .wf-amt.total { color: #1a1f36; font-size: 11pt; }
+
+    .wf-divider {
+      border: none;
+      border-top: 2px solid #1a1f36;
+      margin: 4px 0 4px 38px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- COVER                                           -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-logo"><span>Live</span>Luxe</div>
+  <div class="cover-bar"></div>
+  <div class="cover-title">Owner Disbursement Guide</div>
+  <div class="cover-sub">How Your Monthly Payouts Are Calculated</div>
+  <div class="cover-footer">
+    LiveLuxe Property Management<br>
+    Melbourne, Australia &middot; June 2026
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- TABLE OF CONTENTS                               -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="toc">
+  <div class="ph">
+    <div class="ph-brand"><span>Live</span>Luxe</div>
+    <div class="ph-label">Owner Disbursement Guide</div>
+  </div>
+
+  <div class="toc-title">Contents</div>
+
+  <ul class="toc-list">
+    <li>
+      <div class="toc-num">1</div>
+      <div class="toc-text">
+        <a href="#welcome">Welcome</a>
+        <span class="toc-desc">What disbursements are and what you receive each month</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">2</div>
+      <div class="toc-text toc-highlight">
+        <a href="#rules">The Rules &mdash; When You Get Paid</a>
+        <span class="toc-desc">The two conditions that must be met, with visual diagrams</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">3</div>
+      <div class="toc-text">
+        <a href="#timing">Platform Payout Timing</a>
+        <span class="toc-desc">When Airbnb, Booking.com, and VRBO send payments</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">4</div>
+      <div class="toc-text toc-highlight">
+        <a href="#straddling">Straddling Bookings &mdash; Month-Boundary Diagrams</a>
+        <span class="toc-desc">Visual calendars showing exactly which month a booking falls into</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">5</div>
+      <div class="toc-text toc-highlight">
+        <a href="#calculation">How Your Payout Is Calculated</a>
+        <span class="toc-desc">The exact deduction order with step-by-step waterfall</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">6</div>
+      <div class="toc-text toc-highlight">
+        <a href="#example">Full Worked Example Over a Month</a>
+        <span class="toc-desc">Three real bookings across May, calculated start to finish</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">7</div>
+      <div class="toc-text">
+        <a href="#fees">Understanding Each Fee</a>
+        <span class="toc-desc">Channel commission, management + GST, cleaning, software, expenses</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">8</div>
+      <div class="toc-text">
+        <a href="#statement">Reading Your Monthly Statement</a>
+        <span class="toc-desc">What each section of your PDF means</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">9</div>
+      <div class="toc-text">
+        <a href="#timeline">Monthly Timeline &amp; FAQ</a>
+        <span class="toc-desc">When to expect your payment and common questions</span>
+      </div>
+    </li>
+    <li>
+      <div class="toc-num">10</div>
+      <div class="toc-text">
+        <a href="#summary">Summary of All Fees</a>
+        <span class="toc-desc">Quick reference table</span>
+      </div>
+    </li>
+  </ul>
+
+  <div style="margin-top:20px; padding:12px; background:#fefce8; border:2px solid #C8A97E; border-radius:6px; font-size:9pt; text-align:center;">
+    <strong style="color:#1a1f36;">Highlighted sections</strong> contain the core rules, calculation method, and visual examples.<br>
+    Start there if you want to understand exactly how your payout works.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 1. WELCOME                                      -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="welcome">1. Welcome</h1>
+
+<p>Thank you for partnering with LiveLuxe to manage your property. This guide explains exactly how your monthly disbursement (payout) is calculated, what deductions are made, and when you can expect to receive your funds.</p>
+
+<p>We believe in full transparency. Every line item on your monthly statement is explained in this document so you always know where your money goes.</p>
+
+<h2>What Is a Disbursement?</h2>
+<p>A disbursement is your monthly payout from LiveLuxe. It represents your share of the rental income earned from your property, after all applicable fees, commissions, and expenses have been deducted.</p>
+
+<h2>What You Receive Each Month</h2>
+<ul>
+  <li><strong>A bank transfer</strong> &mdash; your net payout, deposited directly into your nominated bank account</li>
+  <li><strong>A PDF statement</strong> &mdash; emailed to you, showing a full breakdown of every booking, fee, and deduction</li>
+</ul>
+
+<h2>The Deduction Flow at a Glance</h2>
+
+<div class="flow">
+  <div class="flow-box"><strong>$6,000</strong>Guest Pays</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box"><strong>$5,010</strong>After Channel<br>Fee (16.5%)</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box highlight"><strong>$4,018</strong>After Mgmt<br>Fee + GST</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box"><strong>$3,368</strong>After<br>Cleaning</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-box result"><strong>$3,302</strong>Your<br>Payout</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 2. THE RULES                                    -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="rules">2. The Rules &mdash; When You Get Paid</h1>
+
+<div class="rule-box">
+  <h3>The Two Conditions</h3>
+  <p>For a booking to appear on your monthly disbursement, <strong>both</strong> of these must be true:</p>
+  <p><span class="num">1</span> <strong>The booking has finished</strong> &mdash; the guest checked out on or before the last day of that month.</p>
+  <p><span class="num">2</span> <strong>The payout was received</strong> &mdash; the platform payment arrived in the LiveLuxe trust account during that month.</p>
+  <p style="margin-top:12px; color:#C8A97E; font-weight:600;">If either condition is not met, the booking simply rolls to the next month. No money is lost.</p>
+</div>
+
+<h2>Visual: Which Bookings Qualify?</h2>
+
+<div class="diagram">
+  <!-- Booking bar diagram -->
+  <div style="text-align:center; font-size:8pt; color:#6b7280; margin-bottom:6px;">
+    &larr;&mdash;&mdash;&mdash;&mdash;&mdash; MAY &mdash;&mdash;&mdash;&mdash;&mdash;&rarr; &nbsp; &larr;&mdash; JUNE &mdash;&rarr;
+  </div>
+
+  <div class="bar-diagram">
+    <!-- Divider for month boundary -->
+
+    <div class="bar-row">
+      <div class="bar-label" style="color:#059669;">Booking A</div>
+      <div class="bar-track">
+        <div class="bar-mid" style="left:80%;"><div class="bar-mid-label">May 31</div></div>
+        <div class="bar-fill stay" style="left:5%; width:35%;">Stay: May 3&ndash;14</div>
+        <div class="bar-fill payout" style="left:8%; width:4%; top:0; height:50%; border-radius:0 0 3px 3px; margin-top:14px; font-size:0;"></div>
+      </div>
+    </div>
+    <div style="margin-left:130px; font-size:8pt; color:#059669; margin-bottom:10px;">
+      <span class="yes">Checkout in May</span> + <span class="yes">Payout in May</span> = <strong>Included in May</strong>
+    </div>
+
+    <div class="bar-row">
+      <div class="bar-label" style="color:#059669;">Booking B</div>
+      <div class="bar-track">
+        <div class="bar-mid" style="left:80%;"></div>
+        <div class="bar-fill stay" style="left:40%; width:30%;">Stay: May 15&ndash;24</div>
+      </div>
+    </div>
+    <div style="margin-left:130px; font-size:8pt; color:#059669; margin-bottom:10px;">
+      <span class="yes">Checkout in May</span> + <span class="yes">Payout in May</span> = <strong>Included in May</strong>
+    </div>
+
+    <div class="bar-row">
+      <div class="bar-label" style="color:#dc2626;">Booking C</div>
+      <div class="bar-track">
+        <div class="bar-mid" style="left:80%;"></div>
+        <div class="bar-fill stay" style="left:65%; width:25%;">Stay: May 26&ndash;Jun 3</div>
+      </div>
+    </div>
+    <div style="margin-left:130px; font-size:8pt; color:#dc2626; margin-bottom:10px;">
+      <span class="no">Checkout in June</span> = <strong>NOT in May (rolls to June)</strong>
+    </div>
+
+    <div class="bar-row">
+      <div class="bar-label" style="color:#dc2626;">Booking D</div>
+      <div class="bar-track">
+        <div class="bar-mid" style="left:80%;"></div>
+        <div class="bar-fill stay" style="left:72%; width:6%;">May 28&ndash;29</div>
+      </div>
+    </div>
+    <div style="margin-left:130px; font-size:8pt; color:#dc2626; margin-bottom:10px;">
+      <span class="yes">Checkout in May</span> + <span class="no">Payout lands June 2 (Mon)</span> = <strong>NOT in May</strong>
+    </div>
+  </div>
+</div>
+
+<div class="co">
+  <strong>Key takeaway:</strong>
+  Booking D is the tricky one. The guest checked out in May, but because check-in was Friday May 28, Airbnb&rsquo;s payout (1 business day later) lands on Monday June 2. Since the money didn&rsquo;t arrive in the trust in May, this booking rolls to June. <strong>No money is lost &mdash; it just appears on next month&rsquo;s statement.</strong>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 3. PAYOUT TIMING                                -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="timing">3. Platform Payout Timing</h1>
+
+<p>Each booking platform pays on a different schedule. This determines <em>when</em> the money arrives in the trust account.</p>
+
+<table>
+  <thead>
+    <tr><th>Platform</th><th>When They Pay</th><th>Weekend Rule</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Airbnb</strong></td><td>1 business day after <strong>check-in</strong></td><td>Sat/Sun/Holiday &rarr; Next Monday</td></tr>
+    <tr><td><strong>Booking.com</strong></td><td>First Friday after <strong>checkout</strong></td><td>Always lands on a Friday</td></tr>
+    <tr><td><strong>VRBO</strong></td><td>Based on booking confirmation date</td><td>Standard business days</td></tr>
+    <tr><td><strong>Direct</strong></td><td>Collected at time of booking</td><td>Immediate</td></tr>
+  </tbody>
+</table>
+
+<h2>Airbnb Payout Examples</h2>
+
+<div class="cols">
+  <div class="col">
+    <h4>Check-in on a Weekday</h4>
+    <table style="font-size:8.5pt; margin:6px 0 0;">
+      <tr><td>Check-in: <strong>Monday</strong></td><td>Payout: <strong>Tuesday</strong></td></tr>
+      <tr><td>Check-in: <strong>Tuesday</strong></td><td>Payout: <strong>Wednesday</strong></td></tr>
+      <tr><td>Check-in: <strong>Wednesday</strong></td><td>Payout: <strong>Thursday</strong></td></tr>
+      <tr><td>Check-in: <strong>Thursday</strong></td><td>Payout: <strong>Friday</strong></td></tr>
+    </table>
+  </div>
+  <div class="col">
+    <h4>Check-in on a Weekend</h4>
+    <table style="font-size:8.5pt; margin:6px 0 0;">
+      <tr><td>Check-in: <strong>Friday</strong></td><td>Payout: <strong>Monday</strong></td></tr>
+      <tr><td>Check-in: <strong>Saturday</strong></td><td>Payout: <strong>Monday</strong></td></tr>
+      <tr><td>Check-in: <strong>Sunday</strong></td><td>Payout: <strong>Monday</strong></td></tr>
+    </table>
+    <p style="font-size:8pt; color:#dc2626; margin:6px 0 0; font-weight:600;">Weekend check-ins always pay Monday</p>
+  </div>
+</div>
+
+<h2>Booking.com Payout Examples</h2>
+<div class="cols">
+  <div class="col">
+    <table style="font-size:8.5pt; margin:0;">
+      <tr><td>Checkout: <strong>Monday</strong></td><td>Payout: <strong>Friday</strong> (same week)</td></tr>
+      <tr><td>Checkout: <strong>Wednesday</strong></td><td>Payout: <strong>Friday</strong> (same week)</td></tr>
+      <tr><td>Checkout: <strong>Thursday</strong></td><td>Payout: <strong>Friday</strong> (next day)</td></tr>
+    </table>
+  </div>
+  <div class="col">
+    <table style="font-size:8.5pt; margin:0;">
+      <tr><td>Checkout: <strong>Friday</strong></td><td>Payout: <strong>Next Friday</strong> (7 days)</td></tr>
+      <tr><td>Checkout: <strong>Saturday</strong></td><td>Payout: <strong>Next Friday</strong></td></tr>
+      <tr><td>Checkout: <strong>Sunday</strong></td><td>Payout: <strong>Next Friday</strong></td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 4. STRADDLING BOOKINGS                          -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="straddling">4. Straddling Bookings &mdash; Month-Boundary Diagrams</h1>
+
+<p>The most common question owners have is about bookings near the end of a month. These diagrams show exactly which month each booking falls into.</p>
+
+<h2>Scenario: End of May 2026</h2>
+<p>May 31 (Saturday) and June 1 (Sunday) are both non-business days.</p>
+
+<div class="diagram nb">
+  <h3>May 2026 Calendar</h3>
+  <div class="cal">
+    <div class="cal-head">Mon</div><div class="cal-head">Tue</div><div class="cal-head">Wed</div><div class="cal-head">Thu</div><div class="cal-head">Fri</div><div class="cal-head">Sat</div><div class="cal-head">Sun</div>
+    <!-- Week 1 -->
+    <div class="cal-day empty"></div><div class="cal-day empty"></div><div class="cal-day empty"></div><div class="cal-day">1</div><div class="cal-day">2</div><div class="cal-day weekend">3</div><div class="cal-day weekend">4</div>
+    <!-- Week 2 -->
+    <div class="cal-day">5</div><div class="cal-day">6</div><div class="cal-day">7</div><div class="cal-day">8</div><div class="cal-day">9</div><div class="cal-day weekend">10</div><div class="cal-day weekend">11</div>
+    <!-- Week 3 -->
+    <div class="cal-day">12</div><div class="cal-day">13</div><div class="cal-day">14</div><div class="cal-day">15</div><div class="cal-day">16</div><div class="cal-day weekend">17</div><div class="cal-day weekend">18</div>
+    <!-- Week 4 -->
+    <div class="cal-day">19</div><div class="cal-day">20</div><div class="cal-day">21</div><div class="cal-day">22</div><div class="cal-day">23</div><div class="cal-day weekend">24</div><div class="cal-day weekend">25</div>
+    <!-- Week 5 -->
+    <div class="cal-day checkin">26</div><div class="cal-day stay">27</div><div class="cal-day checkout">28</div><div class="cal-day checkin" style="background:#fef3c7; border-color:#d97706; color:#92400e;">29</div><div class="cal-day checkout" style="background:#fef3c7; border-color:#d97706; color:#92400e;">30</div><div class="cal-day weekend">31</div><div class="cal-day next-month" style="font-size:7pt;">Jun 1</div>
+  </div>
+
+  <div class="cal-legend">
+    <div class="cal-legend-item"><div class="cal-legend-box" style="background:#dbeafe; border-color:#2563eb;"></div> Booking E (check-in)</div>
+    <div class="cal-legend-item"><div class="cal-legend-box" style="background:#e0e7ff; border-color:#4f46e5;"></div> Booking E (checkout)</div>
+    <div class="cal-legend-item"><div class="cal-legend-box" style="background:#fef3c7; border-color:#d97706;"></div> Booking F</div>
+    <div class="cal-legend-item"><div class="cal-legend-box" style="background:#fef2f2;"></div> Weekend</div>
+  </div>
+</div>
+
+<div class="cols">
+  <div class="col" style="border-left: 4px solid #059669;">
+    <h4>Booking E: May 26&ndash;28 (Airbnb)</h4>
+    <ul style="font-size:8.5pt;">
+      <li>Check-in: Mon May 26</li>
+      <li>Check-out: Wed May 28</li>
+      <li>Airbnb pays: Tue May 27 (next biz day)</li>
+      <li>Booking elapsed: <span class="yes">Yes (May)</span></li>
+      <li>Payout received: <span class="yes">Yes (May)</span></li>
+    </ul>
+    <p style="font-size:9pt; font-weight:700; color:#059669; margin:4px 0 0;">Included in May disbursement</p>
+  </div>
+  <div class="col" style="border-left: 4px solid #d97706;">
+    <h4>Booking F: May 29&ndash;30 (Airbnb)</h4>
+    <ul style="font-size:8.5pt;">
+      <li>Check-in: Thu May 29</li>
+      <li>Check-out: Fri May 30</li>
+      <li>Airbnb pays: Fri May 30 (next biz day)</li>
+      <li>Booking elapsed: <span class="yes">Yes (May)</span></li>
+      <li>Payout received: <span class="yes">Yes (May)</span></li>
+    </ul>
+    <p style="font-size:9pt; font-weight:700; color:#059669; margin:4px 0 0;">Included in May disbursement</p>
+  </div>
+</div>
+
+<div class="co red" style="margin-top:14px;">
+  <strong>But what if check-in was Friday May 30?</strong>
+  Airbnb pays 1 business day after check-in. The next business day after Friday is <strong>Monday June 2</strong>. Even though the booking starts and finishes in May (checkout Saturday May 31), the payout doesn&rsquo;t arrive until June. This booking would appear on your <strong>June statement</strong> instead.
+</div>
+
+<h2>The Critical Pattern</h2>
+
+<div class="rule-box" style="margin-top:12px;">
+  <h3>When End-of-Month Bookings Roll Forward</h3>
+  <p><span class="num">&bull;</span> <strong>Airbnb check-in on Friday/Saturday/Sunday</strong> at month end &rarr; payout lands Monday (next month)</p>
+  <p><span class="num">&bull;</span> <strong>Booking.com checkout on Saturday/Sunday/Monday</strong> at month end &rarr; payout lands Friday (possibly next month)</p>
+  <p style="margin-top:10px; color:#C8A97E;">This is rare and only affects 1&ndash;3 bookings per month at most. The money is never lost &mdash; it always appears on the following month&rsquo;s statement.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 5. THE CALCULATION                              -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="calculation">5. How Your Payout Is Calculated</h1>
+
+<p>Your disbursement follows a precise order of deductions. Each step is shown on your monthly statement.</p>
+
+<div class="waterfall">
+  <div class="wf-row">
+    <div class="wf-step">1</div>
+    <div class="wf-desc"><strong>Gross Booking Amount</strong> &mdash; what the guest paid</div>
+    <div class="wf-op"></div>
+    <div class="wf-amt pos">$6,000.00</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">2</div>
+    <div class="wf-desc"><strong>Channel Commission</strong> &mdash; Airbnb/Booking.com takes 16.5%</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$990.00</div>
+  </div>
+  <hr class="wf-divider">
+  <div class="wf-row">
+    <div class="wf-step" style="background:#059669;"></div>
+    <div class="wf-desc"><strong>Channel Payout</strong> &mdash; amount that enters the trust account</div>
+    <div class="wf-op">=</div>
+    <div class="wf-amt pos">$5,010.00</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">3</div>
+    <div class="wf-desc"><strong>Management Fee</strong> &mdash; 18% of channel payout ($5,010)</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$901.80</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step" style="background:#64748b;"></div>
+    <div class="wf-desc"><strong>GST on Management</strong> &mdash; 10% of management fee</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$90.18</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">4</div>
+    <div class="wf-desc"><strong>Cleaning Fee</strong> &mdash; paid to the cleaning team (typically $600&ndash;$750/month)</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$650.00</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">5</div>
+    <div class="wf-desc"><strong>Software Fee</strong> &mdash; $65.99/property/month</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$65.99</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">6</div>
+    <div class="wf-desc"><strong>Property Expenses</strong> &mdash; bills paid on your behalf</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$0.00</div>
+  </div>
+  <hr class="wf-divider" style="border-top:3px solid #059669;">
+  <div class="wf-row" style="background:#ecfdf5; padding:8px; border-radius:6px;">
+    <div class="wf-step" style="background:#059669;"></div>
+    <div class="wf-desc"><strong style="font-size:12pt;">YOUR FINAL PAYOUT</strong></div>
+    <div class="wf-op">=</div>
+    <div class="wf-amt total" style="color:#059669; font-size:13pt;">$3,302.03</div>
+  </div>
+  <p style="margin-top:10px; font-size:8.5pt; color:#6b7280; background:#fefce8; padding:8px 12px; border-radius:6px; border-left:3px solid #C8A97E;">
+    <strong>Note:</strong> Management fee rates vary by owner agreement. The 18% + GST shown above is an example &mdash; your rate may differ. Please refer to your management agreement for your specific rate.
+  </p>
+</div>
+
+<h2>Channel Commission Rates</h2>
+<table>
+  <thead><tr><th>Platform</th><th>Rate</th><th>Who Takes It</th></tr></thead>
+  <tbody>
+    <tr><td>Airbnb</td><td><strong>16.5%</strong></td><td>Airbnb deducts before paying trust</td></tr>
+    <tr><td>Booking.com</td><td><strong>16.5%</strong></td><td>Booking.com deducts before paying trust</td></tr>
+    <tr><td>VRBO</td><td><strong>13.5%</strong></td><td>VRBO deducts before paying trust</td></tr>
+    <tr><td>Direct</td><td><strong>0%</strong></td><td>No platform fee</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 6. FULL WORKED EXAMPLE                          -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="example">6. Full Worked Example &mdash; May 2026</h1>
+
+<p>Let&rsquo;s walk through a complete May disbursement for an owner with one property that had three bookings.</p>
+
+<h2>The Three Bookings</h2>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>Guest</th><th>Platform</th><th>Check-in</th><th>Check-out</th><th>Gross</th><th>Cleaning</th><th>Qualifies?</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td><td>Sarah K.</td><td>Airbnb</td><td>May 2</td><td>May 8</td><td>$1,200</td><td>$150</td>
+      <td><span class="yes">Yes</span></td>
+    </tr>
+    <tr>
+      <td>2</td><td>James W.</td><td>Booking.com</td><td>May 12</td><td>May 16</td><td>$800</td><td>$120</td>
+      <td><span class="yes">Yes</span></td>
+    </tr>
+    <tr>
+      <td>3</td><td>Li M.</td><td>Airbnb</td><td>May 21</td><td>May 24</td><td>$600</td><td>$120</td>
+      <td><span class="yes">Yes</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Step-by-Step Calculation</h2>
+
+<h3>Per-Booking Breakdown</h3>
+
+<table>
+  <thead>
+    <tr><th></th><th>Booking 1 (Airbnb)</th><th>Booking 2 (Booking.com)</th><th>Booking 3 (Airbnb)</th><th style="background:#059669;">Total</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Gross amount</strong></td><td>$1,200.00</td><td>$800.00</td><td>$600.00</td><td style="font-weight:700">$2,600.00</td></tr>
+    <tr><td><strong>Channel fee</strong></td><td style="color:#dc2626">&minus;$198.00 (16.5%)</td><td style="color:#dc2626">&minus;$132.00 (16.5%)</td><td style="color:#dc2626">&minus;$99.00 (16.5%)</td><td style="color:#dc2626; font-weight:700">&minus;$429.00</td></tr>
+    <tr style="background:#fefce8"><td><strong>Channel payout</strong></td><td>$1,002.00</td><td>$668.00</td><td>$501.00</td><td style="font-weight:700">$2,171.00</td></tr>
+  </tbody>
+</table>
+
+<h3>Monthly Deductions (Applied to Total Channel Payout)</h3>
+
+<div class="waterfall" style="margin-top:8px;">
+  <div class="wf-row" style="background:#fefce8; padding:6px; border-radius:6px;">
+    <div class="wf-step" style="background:#C8A97E; color:#1a1f36;"></div>
+    <div class="wf-desc"><strong>Total Channel Payout</strong> (3 bookings)</div>
+    <div class="wf-op"></div>
+    <div class="wf-amt total">$2,171.00</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">3</div>
+    <div class="wf-desc">Management Fee (18% &times; $2,171)</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$390.78</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step" style="background:#64748b;"></div>
+    <div class="wf-desc">GST on Management Fee (10% &times; $390.78)</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$39.08</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">4</div>
+    <div class="wf-desc">Total Cleaning (3 bookings: $150 + $120 + $120)</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$390.00</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">5</div>
+    <div class="wf-desc">Software Fee (1 property &times; $65.99)</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$65.99</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-step">6</div>
+    <div class="wf-desc">Expenses: Water bill paid on your behalf</div>
+    <div class="wf-op">&minus;</div>
+    <div class="wf-amt neg">$72.50</div>
+  </div>
+  <hr class="wf-divider" style="border-top:3px solid #059669;">
+  <div class="wf-row" style="background:#ecfdf5; padding:8px; border-radius:6px;">
+    <div class="wf-step" style="background:#059669;"></div>
+    <div class="wf-desc"><strong style="font-size:12pt;">YOUR MAY PAYOUT</strong></div>
+    <div class="wf-op">=</div>
+    <div class="wf-amt total" style="color:#059669; font-size:14pt;">$1,212.65</div>
+  </div>
+</div>
+
+<h2>Timeline of Events</h2>
+
+<table style="font-size:9pt;">
+  <thead><tr><th>Date</th><th>Event</th><th>What Happens</th></tr></thead>
+  <tbody>
+    <tr><td>May 2</td><td>Sarah checks in</td><td>Airbnb payout triggered</td></tr>
+    <tr><td>May 5 (Mon)</td><td>Airbnb pays $1,002</td><td>Arrives in trust account</td></tr>
+    <tr><td>May 8</td><td>Sarah checks out</td><td>Booking 1 complete</td></tr>
+    <tr><td>May 12</td><td>James checks in</td><td>&mdash;</td></tr>
+    <tr><td>May 16</td><td>James checks out</td><td>Booking.com payout triggered</td></tr>
+    <tr><td>May 23 (Fri)</td><td>Booking.com pays $668</td><td>Arrives in trust account</td></tr>
+    <tr><td>May 21</td><td>Li checks in</td><td>Airbnb payout triggered</td></tr>
+    <tr><td>May 22 (Thu)</td><td>Airbnb pays $501</td><td>Arrives in trust account</td></tr>
+    <tr><td>May 24</td><td>Li checks out</td><td>Booking 3 complete</td></tr>
+    <tr style="background:#ecfdf5"><td><strong>Jun 3</strong></td><td><strong>Disbursement processed</strong></td><td><strong>$1,212.65 deposited to your account</strong></td></tr>
+    <tr style="background:#ecfdf5"><td><strong>Jun 3</strong></td><td><strong>Statement emailed</strong></td><td><strong>PDF with full breakdown sent to you</strong></td></tr>
+  </tbody>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 7. FEES EXPLAINED                               -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="fees">7. Understanding Each Fee</h1>
+
+<div class="nb">
+<h2>Channel Commission (16.5% / 13.5%)</h2>
+<p>Charged by the booking platform (Airbnb, Booking.com, or VRBO) &mdash; <strong>not by LiveLuxe</strong>. The platform takes their commission before sending payment to the trust account. You never see this money arrive; it&rsquo;s already deducted.</p>
+</div>
+
+<div class="nb">
+<h2>Cleaning Fee</h2>
+<p>After each guest, your property is professionally cleaned. The cleaning fee is charged to the guest as part of the booking and then paid to the cleaning team. This is an owner cost &mdash; deducted after the management fee has been calculated on the channel payout.</p>
+<p style="margin-top:6px; font-size:9pt; color:#6b7280;">Typical monthly cleaning costs range from <strong>$600&ndash;$750</strong> depending on the number of bookings and property size.</p>
+</div>
+
+<div class="nb">
+<h2>Management Fee (18% + GST)*</h2>
+<p>LiveLuxe&rsquo;s fee for full-service property management, including:</p>
+<ul>
+  <li>24/7 guest communications and support</li>
+  <li>Listing optimisation and dynamic pricing</li>
+  <li>Booking management across all platforms</li>
+  <li>Check-in/check-out coordination</li>
+  <li>Property inspections and maintenance</li>
+  <li>Monthly financial reporting and disbursements</li>
+</ul>
+
+<table>
+  <thead><tr><th>Component</th><th>Rate</th><th>On $2,171 Channel Payout</th></tr></thead>
+  <tbody>
+    <tr><td>Management fee</td><td>18% of channel payout</td><td>$390.78</td></tr>
+    <tr><td>GST</td><td>10% of management fee</td><td>$39.08</td></tr>
+    <tr style="font-weight:700"><td>Total</td><td>19.8% effective</td><td>$429.86</td></tr>
+  </tbody>
+</table>
+<p style="margin-top:8px; font-size:8.5pt; color:#6b7280; background:#fefce8; padding:8px 12px; border-radius:6px; border-left:3px solid #C8A97E;">
+  *Management fee rates vary per owner agreement. Some agreements include GST in the rate, and commission percentages may differ. The 18% + GST example above is illustrative &mdash; refer to your specific management agreement for your rate.
+</p>
+</div>
+
+<div class="nb">
+<h2>Software Fee ($65.99/month per property)</h2>
+<p>A flat monthly fee covering the technology platforms that manage your listing:</p>
+<ul>
+  <li><strong>KeyNest</strong> &mdash; secure key management for guest access</li>
+  <li><strong>PriceLabs</strong> &mdash; dynamic pricing to maximise your revenue</li>
+  <li><strong>Enso</strong> &mdash; guest experience and communication platform</li>
+</ul>
+<p>Charged once per property per month, regardless of bookings.</p>
+</div>
+
+<div class="nb">
+<h2>Property Expenses</h2>
+<p>Bills or costs paid on your behalf, passed through at cost with no markup:</p>
+
+<div class="cols">
+  <div class="col">
+    <ul style="font-size:9pt;">
+      <li>Owners Corporation (OC) levies</li>
+      <li>Strata / body corporate</li>
+      <li>Water bills</li>
+    </ul>
+  </div>
+  <div class="col">
+    <ul style="font-size:9pt;">
+      <li>Electricity</li>
+      <li>Internet</li>
+      <li>Repairs, photography, other</li>
+    </ul>
+  </div>
+</div>
+
+<div class="co">
+  <strong>Important:</strong> Expenses are deducted <strong>after</strong> the management fee. They do not affect the management fee calculation &mdash; they are simply subtracted from your remaining balance.
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 8. READING YOUR STATEMENT                       -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="statement">8. Reading Your Monthly Statement</h1>
+
+<p>Each month you receive a PDF statement via email. Here is what each section contains:</p>
+
+<table>
+  <thead><tr><th style="width:28%">Section</th><th>What It Shows</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Header</strong></td><td>Your name, disbursement period (e.g. &ldquo;May 2026&rdquo;), LiveLuxe branding</td></tr>
+    <tr><td><strong>Booking Income</strong></td><td>Every qualifying booking: dates, guest name, platform, gross, channel fee, payout received. One row per booking.</td></tr>
+    <tr><td><strong>Management Fee</strong></td><td>Base fee (18% of channel payout) and GST (10% of fee) shown separately for tax records</td></tr>
+    <tr><td><strong>Cleaning Fees</strong></td><td>Total cleaning costs across all bookings</td></tr>
+    <tr><td><strong>Monthly Charges</strong></td><td>Software fee ($65.99 per property)</td></tr>
+    <tr><td><strong>Expenses</strong></td><td>Itemised list of any bills paid on your behalf</td></tr>
+    <tr><td><strong>Final Payout</strong></td><td><strong>Bold total in AUD &mdash; the amount deposited to your bank</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="co green">
+  <strong>Tax Tip:</strong> Keep your monthly statements for your records. They contain all the information your accountant needs at tax time, including GST amounts on the management fee.
+</div>
+
+<h1 id="timeline" style="margin-top:30px;">9. Monthly Timeline &amp; FAQ</h1>
+
+<table>
+  <thead><tr><th style="width:32%">When</th><th>What Happens</th></tr></thead>
+  <tbody>
+    <tr><td><strong>During the month</strong></td><td>Guests stay. Platforms process payouts into trust.</td></tr>
+    <tr><td><strong>1st&ndash;3rd of next month</strong></td><td>LiveLuxe reconciles bookings against bank statements.</td></tr>
+    <tr><td><strong>3rd&ndash;5th of next month</strong></td><td>Disbursements calculated. Statements generated.</td></tr>
+    <tr><td><strong>5th&ndash;7th of next month</strong></td><td>Bank transfers processed. PDF statements emailed.</td></tr>
+  </tbody>
+</table>
+
+<h2 style="margin-top:20px;">Frequently Asked Questions</h2>
+
+<div class="nb">
+<h3>Why is a booking I know about not on my statement?</h3>
+<p>It may not have qualified because either the guest hasn&rsquo;t checked out yet, or the platform payment hasn&rsquo;t arrived in trust. It will appear on a future statement once both conditions are met.</p>
+</div>
+
+<div class="nb">
+<h3>Why does the gross differ from what I see on Airbnb?</h3>
+<p>Airbnb shows you their &ldquo;host payout&rdquo; (after their commission). Our statement shows the full guest payment as the gross, then deducts the channel fee as a separate line. Both are correct.</p>
+</div>
+
+<div class="nb">
+<h3>Can I change my bank details?</h3>
+<p>Yes. Contact LiveLuxe at least 5 business days before the next disbursement.</p>
+</div>
+
+<div class="nb">
+<h3>Is GST included in the management fee?</h3>
+<p>GST is shown separately. The management fee is 18% of channel payout. GST (10%) is applied on top. Total effective rate: 19.8%. Note that management fee rates may vary per owner agreement &mdash; some agreements include GST in the rate, and commission percentages may differ.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 10. SUMMARY                                     -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="pb"></div>
+<div class="ph">
+  <div class="ph-brand"><span>Live</span>Luxe</div>
+  <div class="ph-label">Owner Disbursement Guide</div>
+</div>
+
+<h1 id="summary">10. Summary of All Fees</h1>
+
+<table>
+  <thead><tr><th>Fee</th><th>Rate / Amount</th><th>Charged By</th><th>When Deducted</th></tr></thead>
+  <tbody>
+    <tr><td>Airbnb commission</td><td>16.5% of gross</td><td>Airbnb</td><td>Before payout to trust</td></tr>
+    <tr><td>Booking.com commission</td><td>16.5% of gross</td><td>Booking.com</td><td>Before payout to trust</td></tr>
+    <tr><td>VRBO commission</td><td>13.5% of gross</td><td>VRBO</td><td>Before payout to trust</td></tr>
+    <tr><td>Management fee*</td><td>18% of channel payout</td><td>LiveLuxe</td><td>After channel payout</td></tr>
+    <tr><td>GST on management</td><td>10% of mgmt fee</td><td>ATO (via LiveLuxe)</td><td>After channel payout</td></tr>
+    <tr><td>Cleaning fee</td><td>Varies per property</td><td>Cleaning team</td><td>After management fee</td></tr>
+    <tr><td>Software fee</td><td>$65.99/month/property</td><td>LiveLuxe</td><td>After cleaning</td></tr>
+    <tr><td>Property expenses</td><td>At cost</td><td>Various</td><td>After cleaning</td></tr>
+  </tbody>
+</table>
+
+<div class="rule-box" style="margin-top:24px; text-align:center;">
+  <h3 style="margin-bottom:6px;">The Golden Rule</h3>
+  <p style="font-size:12pt; color:#C8A97E; margin:0;">
+    Gross &rarr; Channel Fee &rarr; Management + GST &rarr; Cleaning &rarr; Software &rarr; Expenses &rarr; <strong style="color:white;">Your Payout</strong>
+  </p>
+</div>
+
+<div style="margin-top:40px; text-align:center; padding:28px; background:#f9fafb; border-radius:8px; border:1px solid #e5e7eb;">
+  <div style="font-size:14pt; font-weight:700; color:#1a1f36; margin-bottom:6px;">Questions?</div>
+  <p style="margin:0; color:#6b7280;">
+    Contact us at <strong>contact@liveluxeau.com</strong><br>
+    or speak with your property manager directly.
+  </p>
+  <div style="margin-top:18px; font-size:10pt; color:#C8A97E; font-weight:600;">
+    LiveLuxe Property Management &mdash; Melbourne, Australia
+  </div>
+</div>
+
+</body>
+</html>

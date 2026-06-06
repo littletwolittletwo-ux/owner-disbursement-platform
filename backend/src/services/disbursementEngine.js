@@ -1,5 +1,8 @@
 import PDFDocument from 'pdfkit';
 import postmark from 'postmark';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { query, withTransaction } from '../db.js';
 import { startEndForMonth } from '../utils/dates.js';
 import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate, countPeriodNights } from './payoutEngine.js';
@@ -484,7 +487,10 @@ export async function sendDisbursementEmail(id) {
       Subject: `LiveLuxe ${monthLabelForEmail(disbursement.month)} Statement${subjectSuffix}`,
       HtmlBody: emailHtml,
       TextBody: `Hi ${disbursement.owner_name},\n\nPlease find attached your disbursement statement for ${disbursement.month}.\n\nFinal Payout: $${Number(disbursement.final_owner_payout).toFixed(2)} AUD\n\nIf you have any questions, please contact us at contact@liveluxeau.com.\n\nBest regards,\nLiveLuxe Property Management`,
-      Attachments: [{ Name: `LiveLuxe-Disbursement-${disbursement.month}.pdf`, Content: pdf.toString('base64'), ContentType: 'application/pdf' }]
+      Attachments: [
+        { Name: `LiveLuxe-Disbursement-${disbursement.month}.pdf`, Content: pdf.toString('base64'), ContentType: 'application/pdf' },
+        ...getGuideAttachment()
+      ]
     });
     const result = await query(
       `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, provider_message_id)
@@ -507,6 +513,22 @@ export async function bulkSend(month) {
   const results = [];
   for (const row of rows) results.push(await sendDisbursementEmail(row.id));
   return results;
+}
+
+function getGuideAttachment() {
+  try {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const guidePath = path.join(__dirname, '../../../LiveLuxe-Owner-Disbursement-Guide.pdf');
+    const guideBuffer = fs.readFileSync(guidePath);
+    return [{
+      Name: 'LiveLuxe-Owner-Disbursement-Guide.pdf',
+      Content: guideBuffer.toString('base64'),
+      ContentType: 'application/pdf'
+    }];
+  } catch (err) {
+    console.warn('Guide PDF not found, skipping attachment:', err.message);
+    return [];
+  }
 }
 
 function monthLabelForEmail(month) {

@@ -38,9 +38,8 @@ export function calculateExpectedPayoutDate(reservation) {
   }
 
   if (platform === 'vrbo') {
-    // VRBO: based on booking date
-    const bookingDate = reservation.bookingDate || reservation.booking_date;
-    return addDays(bookingDate, Number(reservation.vrboReleaseDays ?? 2));
+    // VRBO: day after checkout (spec §2.2)
+    return addDays(reservation.checkOut || reservation.check_out, 1);
   }
 
   if (platform === 'direct') {
@@ -103,4 +102,47 @@ export function roundCurrency(value) {
 
 export function getDefaultFeeRates() {
   return { ...DEFAULT_FEE_RATES };
+}
+
+/**
+ * Count how many sleeping nights fall within the disbursement period (spec §4.1).
+ * A sleeping night is the date the guest occupies the property overnight.
+ * Night dates: checkin, checkin+1, ..., checkout-1 (checkout is departure day).
+ */
+export function countPeriodNights(checkin, checkout, periodStart, periodEnd) {
+  const ci = new Date(`${toDateOnly(checkin)}T00:00:00Z`);
+  const co = new Date(`${toDateOnly(checkout)}T00:00:00Z`);
+  const ps = new Date(`${toDateOnly(periodStart)}T00:00:00Z`);
+  // period_end is inclusive, so effective upper bound for nights is period_end + 1 day
+  const pe1 = new Date(`${toDateOnly(periodEnd)}T00:00:00Z`);
+  pe1.setUTCDate(pe1.getUTCDate() + 1);
+
+  const effectiveStart = ci > ps ? ci : ps;
+  const effectiveEnd = co < pe1 ? co : pe1;
+
+  const periodNights = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 86400000));
+  const totalNights = Math.max(0, Math.round((co - ci) / 86400000));
+
+  return { periodNights, totalNights };
+}
+
+/**
+ * Pro-rate a reservation's financial amounts for the disbursement period (spec §4.2).
+ * Returns share, pro-rated gross, and pro-rated cleaning fee.
+ */
+export function proRateReservation(reservation, periodStart, periodEnd) {
+  const checkin = reservation.checkIn || reservation.check_in;
+  const checkout = reservation.checkOut || reservation.check_out;
+  const { periodNights, totalNights } = countPeriodNights(checkin, checkout, periodStart, periodEnd);
+  const share = totalNights === 0 ? 0 : periodNights / totalNights;
+  const grossAmount = Number(reservation.grossAmount ?? reservation.gross_amount ?? 0);
+  const cleaningFee = Number(reservation.cleaningFee ?? reservation.cleaning_fee ?? 0);
+
+  return {
+    periodNights,
+    totalNights,
+    share: roundCurrency(share * 1000000) / 1000000, // 6 decimal places
+    periodGross: roundCurrency(grossAmount * share),
+    periodCleaning: roundCurrency(cleaningFee * share)
+  };
 }

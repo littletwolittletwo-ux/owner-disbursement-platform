@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculatePayout } from '../src/services/payoutEngine.js';
+import { calculatePayout, countPeriodNights, proRateReservation } from '../src/services/payoutEngine.js';
 
 // === Airbnb Tests (16.5% channel fee) ===
 
@@ -20,7 +20,6 @@ test('Airbnb pays day after check-in, 16.5% channel fee', () => {
 });
 
 test('Airbnb rolls Saturday payout to Monday', () => {
-  // May 15 Fri, May 16 Sat -> rolls to May 18 Mon
   const result = calculatePayout({
     platform: 'Airbnb',
     checkIn: '2026-05-15',
@@ -29,12 +28,7 @@ test('Airbnb rolls Saturday payout to Monday', () => {
     grossAmount: 1000
   });
   // May 15 2026 is a Friday, day after is May 16 Saturday
-  // Actually let me check: May 15 2026 is a Friday
-  // Day after = May 16 = Saturday -> rolls to Monday May 18
-  // Wait, the function does: addDays(checkIn, 1) = May 16
-  // dayOfWeek(May 16) - need to check what day May 16 2026 is
-  // May 1 2026 is Friday, May 15 is Friday, May 16 is Saturday
-  // So dow=6 -> addDays(2) = May 18 (Monday)
+  // dow=6 -> addDays(2) = May 18 (Monday)
   assert.equal(result.expectedPayoutDate, '2026-05-18');
   assert.equal(result.disbursementMonth, '2026-05');
 });
@@ -81,19 +75,33 @@ test('Booking.com checkout on Thursday, pays next Friday', () => {
   assert.equal(result.platformFee, 99); // 16.5% of 600
 });
 
+test('Booking.com checkout on Friday gets 7-day gap to following Friday', () => {
+  // May 29 2026 is a Friday -> payout is FOLLOWING Friday June 5 (strictly after checkout)
+  const result = calculatePayout({
+    platform: 'Booking.com',
+    checkIn: '2026-05-25',
+    checkOut: '2026-05-29', // Friday
+    grossAmount: 800
+  });
+  assert.equal(result.expectedPayoutDate, '2026-06-05');
+  assert.equal(result.disbursementMonth, '2026-06');
+  assert.equal(result.platformFee, 132); // 16.5% of 800
+});
+
 // === VRBO Tests (12% channel fee) ===
 
-test('VRBO payout based on booking date, 12% channel fee', () => {
+test('VRBO payout is day after checkout, 12% channel fee', () => {
+  // Spec §2.2: VRBO releases payout the day after checkout
   const result = calculatePayout({
     platform: 'VRBO',
     checkIn: '2026-08-10',
     checkOut: '2026-08-15',
     bookingDate: '2026-05-28',
     grossAmount: 1500,
-    vrboReleaseDays: 2
+    vrboReleaseDays: 2  // ignored now
   });
-  assert.equal(result.expectedPayoutDate, '2026-05-30');
-  assert.equal(result.disbursementMonth, '2026-05');
+  assert.equal(result.expectedPayoutDate, '2026-08-16'); // checkout + 1 day
+  assert.equal(result.disbursementMonth, '2026-08');
   assert.equal(result.platformFee, 180); // 12% of 1500
   assert.equal(result.netAfterPlatformFee, 1320);
 });
@@ -111,9 +119,9 @@ test('Direct booking has 0% channel fee', () => {
   assert.equal(result.netAfterPlatformFee, 500);
 });
 
-// === Disbursement Calculation Order Test ===
+// === Disbursement Calculation Order Test (incGST model) ===
 
-test('Full disbursement math: gross -> channel fee -> cleaning -> mgmt+GST -> software -> expenses', () => {
+test('Full disbursement math: gross -> channel fee -> mgmt (incGST) -> cleaning -> expenses', () => {
   // Simulate an Airbnb booking: guest pays $1000
   const result = calculatePayout({
     platform: 'Airbnb',
@@ -129,35 +137,126 @@ test('Full disbursement math: gross -> channel fee -> cleaning -> mgmt+GST -> so
   // Step 2: Channel commission = 16.5% = $165
   assert.equal(result.platformFee, 165);
 
-  // Step 3: Channel payout = $835
-  assert.equal(result.netAfterPlatformFee, 835);
+  // Step 3: Net payout (channel payout) = $835
+  const netPayout = result.netAfterPlatformFee;
+  assert.equal(netPayout, 835);
 
-  // Step 4: Cleaning = $120 (tracked)
+  // Step 4: Management fee (incGST) = 19.8% of net payout = $835 * 0.198 = $165.33
+  //   (19.8% incGST = 18% base + 10% GST, combined into single rate)
+  const mgmtFee = Math.round((netPayout * 0.198 + Number.EPSILON) * 100) / 100;
+  assert.equal(mgmtFee, 165.33);
+
+  // Step 5: After management = $835 - $165.33 = $669.67
+  const afterMgmt = Math.round((netPayout - mgmtFee + Number.EPSILON) * 100) / 100;
+  assert.equal(afterMgmt, 669.67);
+
+  // Step 6: Cleaning = $120
   assert.equal(result.cleaningFee, 120);
 
-  // Step 5: Net income = $835 - $120 = $715
-  const netIncome = result.netAfterPlatformFee - result.cleaningFee;
-  assert.equal(netIncome, 715);
+  // Step 7: After cleaning = $669.67 - $120 = $549.67
+  const afterCleaning = Math.round((afterMgmt - result.cleaningFee + Number.EPSILON) * 100) / 100;
+  assert.equal(afterCleaning, 549.67);
 
-  // Step 6: Management fee = 18% of $715 = $128.70
-  const mgmtBase = Math.round((netIncome * 0.18 + Number.EPSILON) * 100) / 100;
-  assert.equal(mgmtBase, 128.70);
+  // Step 8: Sample expense = $50
+  // Final = $549.67 - $50 = $499.67  (no software fee in real reports)
+  const finalPayout = Math.round((afterCleaning - 50 + Number.EPSILON) * 100) / 100;
+  assert.equal(finalPayout, 499.67);
+});
 
-  // Step 7: GST on mgmt = 10% of $128.70 = $12.87
-  const mgmtGst = Math.round((mgmtBase * 0.10 + Number.EPSILON) * 100) / 100;
-  assert.equal(mgmtGst, 12.87);
+// === Management Fee Discount Test ===
 
-  // Step 8: Total mgmt = $128.70 + $12.87 = $141.57
-  const mgmtTotal = Math.round((mgmtBase + mgmtGst + Number.EPSILON) * 100) / 100;
-  assert.equal(mgmtTotal, 141.57);
+test('Management fee with 55% waiver and boost reduces effective fee', () => {
+  // Property with 22% incGST rate, 55% waiver, $0 boost
+  const netPayout = 3447.23; // sample channel payout
+  const mgmtRate = 0.22;
+  const waiverPct = 0.55;
+  const boost = 0;
 
-  // Step 9: After management = $715 - $141.57 = $573.43
-  const afterMgmt = Math.round((netIncome - mgmtTotal + Number.EPSILON) * 100) / 100;
-  assert.equal(afterMgmt, 573.43);
+  const fullFee = Math.round((netPayout * mgmtRate + Number.EPSILON) * 100) / 100;
+  assert.equal(fullFee, 758.39);
 
-  // Step 10: Software fee = $65.99 (per property)
-  // Step 11: Sample expense = $50
-  // Final = $573.43 - $65.99 - $50 = $457.44
-  const finalPayout = Math.round((afterMgmt - 65.99 - 50 + Number.EPSILON) * 100) / 100;
-  assert.equal(finalPayout, 457.44);
+  const waiverAmt = Math.round((fullFee * waiverPct + Number.EPSILON) * 100) / 100;
+  assert.equal(waiverAmt, 417.11);
+
+  const effectiveFee = Math.round((fullFee - waiverAmt - boost + Number.EPSILON) * 100) / 100;
+  assert.equal(effectiveFee, 341.28);
+});
+
+test('Management fee with 100% waiver + boost gives credit to owner', () => {
+  const netPayout = 2777.38;
+  const mgmtRate = 0.209;
+  const waiverPct = 1.0;
+  const boost = 228.53;
+
+  const fullFee = Math.round((netPayout * mgmtRate + Number.EPSILON) * 100) / 100;
+  assert.equal(fullFee, 580.47);
+
+  const waiverAmt = Math.round((fullFee * waiverPct + Number.EPSILON) * 100) / 100;
+  const discount = waiverAmt + boost;
+  const effectiveFee = Math.round((fullFee - discount + Number.EPSILON) * 100) / 100;
+  // Full fee waived + $228.53 boost = owner gets $228.53 credit
+  assert.equal(effectiveFee, -228.53);
+});
+
+// === Pro-Rating Tests (spec §4) ===
+
+test('countPeriodNights: straddling booking Apr 30 → May 3 in May period', () => {
+  // Total nights: 3 (Apr 30, May 1, May 2)
+  // May nights: 2 (May 1, May 2)
+  const { periodNights, totalNights } = countPeriodNights('2026-04-30', '2026-05-03', '2026-05-01', '2026-05-31');
+  assert.equal(totalNights, 3);
+  assert.equal(periodNights, 2);
+});
+
+test('countPeriodNights: zero-night straddler (checkout May 1, only night is Apr 30)', () => {
+  // Total nights: 1 (Apr 30)
+  // May nights: 0 (the only night is Apr 30, before period)
+  const { periodNights, totalNights } = countPeriodNights('2026-04-30', '2026-05-01', '2026-05-01', '2026-05-31');
+  assert.equal(totalNights, 1);
+  assert.equal(periodNights, 0);
+});
+
+test('countPeriodNights: full month booking (no pro-rating needed)', () => {
+  const { periodNights, totalNights } = countPeriodNights('2026-05-05', '2026-05-10', '2026-05-01', '2026-05-31');
+  assert.equal(totalNights, 5);
+  assert.equal(periodNights, 5);
+});
+
+test('proRateReservation: straddling 2/3 nights', () => {
+  const result = proRateReservation({
+    checkIn: '2026-04-30',
+    checkOut: '2026-05-03',
+    grossAmount: 468.40,
+    cleaningFee: 90
+  }, '2026-05-01', '2026-05-31');
+  assert.equal(result.periodNights, 2);
+  assert.equal(result.totalNights, 3);
+  assert.equal(result.periodGross, 312.27); // 468.40 * 2/3
+  assert.equal(result.periodCleaning, 60); // 90 * 2/3
+});
+
+test('proRateReservation: zero-night straddler returns $0', () => {
+  const result = proRateReservation({
+    checkIn: '2026-04-30',
+    checkOut: '2026-05-01',
+    grossAmount: 200,
+    cleaningFee: 50
+  }, '2026-05-01', '2026-05-31');
+  assert.equal(result.periodNights, 0);
+  assert.equal(result.totalNights, 1);
+  assert.equal(result.periodGross, 0);
+  assert.equal(result.periodCleaning, 0);
+});
+
+test('proRateReservation: full stay within period (no pro-rating)', () => {
+  const result = proRateReservation({
+    checkIn: '2026-05-10',
+    checkOut: '2026-05-15',
+    grossAmount: 1000,
+    cleaningFee: 120
+  }, '2026-05-01', '2026-05-31');
+  assert.equal(result.periodNights, 5);
+  assert.equal(result.totalNights, 5);
+  assert.equal(result.periodGross, 1000);
+  assert.equal(result.periodCleaning, 120);
 });

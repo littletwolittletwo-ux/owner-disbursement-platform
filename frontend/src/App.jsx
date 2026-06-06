@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Building2, Calculator, Calendar, Check, ChevronDown, ChevronUp, DollarSign, Download, Eye, FileText, Link2, Mail, Pencil, RefreshCcw, Settings, Upload, WalletCards, X } from 'lucide-react';
+import { Building2, Calculator, Calendar, Check, ChevronDown, ChevronUp, DollarSign, Download, Eye, FileText, Link2, Mail, Pencil, Receipt, RefreshCcw, Settings, Trash2, Upload, WalletCards, X } from 'lucide-react';
 import './main.css';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -329,6 +329,7 @@ function App() {
     { id: 'dashboard', label: 'Dashboard', icon: <WalletCards className="h-4 w-4" /> },
     { id: 'reservations', label: 'Reservations', icon: <Calendar className="h-4 w-4" /> },
     { id: 'deals', label: 'Property Deals', icon: <Building2 className="h-4 w-4" /> },
+    { id: 'expenses', label: 'Expenses', icon: <Receipt className="h-4 w-4" /> },
     { id: 'setup', label: 'Setup', icon: <Settings className="h-4 w-4" /> },
   ];
 
@@ -383,6 +384,10 @@ function App() {
       />}
 
       {tab === 'deals' && <PropertyDealsView flash={flash} />}
+
+      {tab === 'expenses' && <ExpensesView
+        listings={listings.data || []} owners={ownerOptions} flash={flash}
+      />}
 
       {tab === 'setup' && <SetupView
         owners={ownerOptions} listings={listings.data || []}
@@ -1143,6 +1148,214 @@ function SetupView({ owners, listings, ownerForm, setOwnerForm, createOwner, lis
           { key: 'phone', label: 'Phone' },
         ]} maxRows={100} />
       </Panel>
+    </section>
+  );
+}
+
+// ── Expenses View ──
+
+function ExpensesView({ listings, owners, flash }) {
+  const [expenseForm, setExpenseForm] = useState({ listing_id: '', expense_date: '', description: '', category: 'maintenance', amount: '' });
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [filterOwner, setFilterOwner] = useState('');
+
+  const fetchExpenses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filterMonth) params.set('month', filterMonth);
+      if (filterOwner) params.set('owner_id', filterOwner);
+      const response = await fetch(`${API}/api/expenses?${params}`);
+      if (response.ok) setExpenses(await response.json());
+    } catch (e) { flash(e.message, 'error'); }
+    setLoading(false);
+  }, [filterMonth, filterOwner]);
+
+  useEffect(() => { fetchExpenses(); }, [fetchExpenses]);
+
+  async function submitExpense(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const form = new FormData();
+      form.append('listing_id', expenseForm.listing_id);
+      form.append('expense_date', expenseForm.expense_date);
+      form.append('description', expenseForm.description);
+      form.append('category', expenseForm.category);
+      form.append('amount', expenseForm.amount);
+      if (receiptFile) form.append('receipt', receiptFile);
+
+      const response = await fetch(`${API}/api/expenses`, { method: 'POST', body: form });
+      if (!response.ok) throw new Error((await response.json()).error || 'Failed to create expense');
+      setExpenseForm({ listing_id: '', expense_date: '', description: '', category: 'maintenance', amount: '' });
+      setReceiptFile(null);
+      flash('Expense created', 'success');
+      fetchExpenses();
+    } catch (e) { flash(e.message, 'error'); }
+    setSubmitting(false);
+  }
+
+  async function handleCsvImport(file) {
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch(`${API}/api/expenses/import-csv`, { method: 'POST', body: form });
+      if (!response.ok) throw new Error((await response.json()).error || 'CSV import failed');
+      const result = await response.json();
+      flash(`CSV import: ${result.success} expenses created${result.errors.length ? `, ${result.errors.length} errors` : ''}`, result.errors.length ? 'error' : 'success');
+      fetchExpenses();
+    } catch (e) { flash(e.message, 'error'); }
+    setImporting(false);
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Delete this expense?')) return;
+    try {
+      const response = await fetch(`${API}/api/expenses/${id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Delete failed');
+      flash('Expense deleted', 'success');
+      fetchExpenses();
+    } catch (e) { flash(e.message, 'error'); }
+  }
+
+  const total = useMemo(() => expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0), [expenses]);
+
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-5 space-y-5">
+      {/* Metrics */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric title="Total Expenses" value={expenses.length} icon={<Receipt />} />
+        <Metric title="Total Amount" value={money(total)} icon={<DollarSign />} accent />
+        <Metric title="With Receipts" value={expenses.filter(e => e.receipt_url).length} icon={<FileText />} />
+        <Metric title="Categories" value={[...new Set(expenses.map(e => e.category))].length} icon={<Settings />} />
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[400px_1fr]">
+        {/* Left column: Add + Import */}
+        <div className="space-y-5">
+          {/* Add Single Expense */}
+          <Panel title="Add Expense">
+            <form onSubmit={submitExpense} className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Listing</label>
+                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" required
+                  value={expenseForm.listing_id} onChange={e => setExpenseForm({ ...expenseForm, listing_id: e.target.value })}>
+                  <option value="">Select listing...</option>
+                  {listings.map(l => <option key={l.id} value={l.id}>{l.name} ({l.owner_name})</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Date</label>
+                  <input type="date" required className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-gold focus:outline-none"
+                    value={expenseForm.expense_date} onChange={e => setExpenseForm({ ...expenseForm, expense_date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Amount ($)</label>
+                  <input type="number" step="0.01" min="0" required placeholder="0.00"
+                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-gold focus:outline-none"
+                    value={expenseForm.amount} onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Description</label>
+                <Input placeholder="e.g. Plumber call-out fee" required
+                  value={expenseForm.description} onChange={description => setExpenseForm({ ...expenseForm, description })} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Category</label>
+                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })}>
+                  <option value="maintenance">Maintenance</option>
+                  <option value="repairs">Repairs</option>
+                  <option value="supplies">Supplies</option>
+                  <option value="utilities">Utilities</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Receipt (optional)</label>
+                <label className="flex cursor-pointer items-center justify-between rounded border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 hover:border-gold hover:bg-gold/5 transition-colors">
+                  <span><Upload className="mr-2 inline h-4 w-4 text-gold" />{receiptFile ? receiptFile.name : 'Attach PDF/JPG/PNG'}</span>
+                  <input className="hidden" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={e => setReceiptFile(e.target.files?.[0] || null)} />
+                  <span className="text-xs text-slate-400">Max 10MB</span>
+                </label>
+              </div>
+              <button disabled={submitting} className="w-full rounded bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy/90 disabled:opacity-50">
+                {submitting ? 'Creating...' : 'Add Expense'}
+              </button>
+            </form>
+          </Panel>
+
+          {/* Batch CSV Import */}
+          <Panel title="Batch CSV Import">
+            <p className="text-xs text-slate-500 mb-3">
+              Upload a CSV with columns: <code className="bg-slate-100 px-1 rounded">listing_id</code>, <code className="bg-slate-100 px-1 rounded">expense_date</code>, <code className="bg-slate-100 px-1 rounded">description</code>, <code className="bg-slate-100 px-1 rounded">category</code>, <code className="bg-slate-100 px-1 rounded">amount</code>
+            </p>
+            <label className={`flex cursor-pointer items-center justify-between rounded border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 hover:border-gold hover:bg-gold/5 transition-colors ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
+              <span><Upload className="mr-2 inline h-4 w-4 text-gold" />{importing ? 'Importing...' : 'Upload Expenses CSV'}</span>
+              <input className="hidden" type="file" accept=".csv"
+                onChange={e => { if (e.target.files?.[0]) handleCsvImport(e.target.files[0]); e.target.value = ''; }} />
+              <span className="text-xs text-slate-400">CSV</span>
+            </label>
+          </Panel>
+        </div>
+
+        {/* Right column: Expense List */}
+        <Panel title={`Expenses (${expenses.length})`} actions={
+          <div className="flex items-center gap-2">
+            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
+              className="rounded border border-slate-300 px-2 py-1 text-xs focus:border-gold focus:outline-none" />
+            <select value={filterOwner} onChange={e => setFilterOwner(e.target.value)}
+              className="rounded border border-slate-300 px-2 py-1 text-xs max-w-[160px]">
+              <option value="">All Owners</option>
+              {owners.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+        }>
+          {loading ? <p className="text-sm text-slate-400 py-4 text-center">Loading...</p> : (
+            <>
+              <DataTable rows={expenses} maxRows={100} columns={[
+                { key: 'expense_date', label: 'Date' },
+                { key: 'listing_name', label: 'Listing' },
+                { key: 'owner_name', label: 'Owner' },
+                { key: 'description', label: 'Description' },
+                { key: 'category', label: 'Category', render: (r) => (
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                    r.category === 'maintenance' ? 'bg-blue-50 text-blue-600' :
+                    r.category === 'repairs' ? 'bg-orange-50 text-orange-600' :
+                    r.category === 'supplies' ? 'bg-purple-50 text-purple-600' :
+                    r.category === 'utilities' ? 'bg-green-50 text-green-600' :
+                    'bg-slate-100 text-slate-500'
+                  }`}>{r.category}</span>
+                )},
+                { key: 'amount', label: 'Amount' },
+                { key: 'receipt_url', label: 'Receipt', render: (r) => r.receipt_url
+                  ? <a href={r.receipt_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs"><Eye className="inline h-3 w-3 mr-1" />View</a>
+                  : <span className="text-slate-300 text-xs">&mdash;</span>
+                },
+                { key: 'actions', label: '', render: (r) => (
+                  <button onClick={() => handleDelete(r.id)} className="text-red-400 hover:text-red-600" title="Delete">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )},
+              ]} />
+              {expenses.length > 0 && (
+                <div className="flex justify-end mt-3 pt-3 border-t">
+                  <span className="text-sm font-semibold text-navy">Total: {money(total)}</span>
+                </div>
+              )}
+            </>
+          )}
+        </Panel>
+      </div>
     </section>
   );
 }

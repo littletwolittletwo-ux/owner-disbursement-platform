@@ -20,6 +20,7 @@ import { generateReportHtml, generateEmailBodyHtml } from './services/reportGene
 import { renderHtmlToPdf } from './services/pdfRenderer.js';
 import { syncHostaway, syncHostawayDateRange, syncHostawayMonth, queryReservations, getStraddlingBookings, reservationsToCSV } from './services/hostaway.js';
 import { generateMonthlyAba } from './services/abaGenerator.js';
+import { createExpense, getExpenses, getExpense, deleteExpense, importExpenseCsv, uploadReceipt } from './services/expenseService.js';
 
 const upload = multer({ dest: process.env.VERCEL ? '/tmp/uploads' : 'uploads/' });
 export const router = express.Router();
@@ -400,6 +401,64 @@ router.get('/reservations/straddlers/:month', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// ── Expenses (CRUD + receipts) ──
+router.get('/expenses', async (req, res, next) => {
+  try {
+    const { owner_id, listing_id, month, category } = req.query;
+    res.json(await getExpenses({ ownerId: owner_id, listingId: listing_id, month, category }));
+  } catch (error) { next(error); }
+});
+
+router.post('/expenses', upload.single('receipt'), async (req, res, next) => {
+  try {
+    let receiptUrl = null;
+    let receiptFilename = null;
+    if (req.file) {
+      const { default: fs } = await import('fs');
+      const buffer = fs.readFileSync(req.file.path);
+      const result = await uploadReceipt(buffer, req.file.originalname);
+      receiptUrl = result.url;
+      receiptFilename = result.filename;
+      fs.unlinkSync(req.file.path);
+    }
+    const expense = await createExpense({
+      listingId: req.body.listing_id,
+      expenseDate: req.body.expense_date,
+      description: req.body.description,
+      category: req.body.category,
+      amount: Number(req.body.amount),
+      receiptUrl,
+      receiptFilename,
+    });
+    res.status(201).json(expense);
+  } catch (error) { next(error); }
+});
+
+router.get('/expenses/:id', async (req, res, next) => {
+  try {
+    const expense = await getExpense(req.params.id);
+    if (!expense) return res.status(404).json({ error: 'Expense not found' });
+    res.json(expense);
+  } catch (error) { next(error); }
+});
+
+router.delete('/expenses/:id', async (req, res, next) => {
+  try {
+    await deleteExpense(req.params.id);
+    res.status(204).end();
+  } catch (error) { next(error); }
+});
+
+router.post('/expenses/import-csv', upload.single('file'), async (req, res, next) => {
+  try {
+    const { default: fs } = await import('fs');
+    const buffer = fs.readFileSync(req.file.path);
+    fs.unlinkSync(req.file.path);
+    const result = await importExpenseCsv(buffer);
+    res.json(result);
+  } catch (error) { next(error); }
 });
 
 // ── Hostaway Sync ──

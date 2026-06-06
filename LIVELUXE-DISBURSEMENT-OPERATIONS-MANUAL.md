@@ -156,21 +156,21 @@ STEP 2: − Channel Commission
        = CHANNEL PAYOUT
          (What actually enters your trust account)
 
-STEP 3: − Cleaning Fee
-         (The cleaning fee charged to the guest is deducted here.
-          The owner pays the cleaner — this is their cost.)
-         ──────────────────────────────
-       = NET INCOME TO OWNER
-         (This is what appears on the owner's disbursement
-          as their income. Pure income after payout and cleaning.)
-
-STEP 4: − Management Fee (18% of net income)
+STEP 3: − Management Fee (18% of channel payout)
        − GST on Management Fee (10% of management fee)
          (Commission is 18% + GST. On the report it shows as
           "Management Fee" and "GST on Management Fee" separately.
-          Effectively 19.8% of net income.)
+          Effectively 19.8% of channel payout.)
          ──────────────────────────────
        = AFTER MANAGEMENT
+
+STEP 4: − Cleaning Fee
+         (The cleaning fee charged to the guest is deducted here.
+          The owner pays the cleaner — this is their cost.
+          Deducted AFTER management so LiveLuxe earns commission
+          on the full channel payout, not reduced by cleaning.)
+         ──────────────────────────────
+       = AFTER CLEANING
 
 STEP 5: − Software Fee ($65.99 per property per month)
          (Covers KeyNest + PriceLabs + Enso. We take a small loss
@@ -191,9 +191,9 @@ STEP 6: − One-Off Expenses
 
 ### Why This Order Matters
 
-**Cleaning is deducted BEFORE management fee:**
-- The cleaning fee is a pass-through cost to the owner. The owner pays the cleaner.
-- Your management commission is on the net income (after cleaning), not on the gross.
+**Management fee is calculated BEFORE cleaning:**
+- LiveLuxe's management commission is 18% of the channel payout (what enters trust).
+- Cleaning is an owner cost deducted after, so it does not reduce LiveLuxe's commission base.
 
 **Expenses are deducted AFTER management fee:**
 - You (LiveLuxe) are choosing to help owners pay their bills.
@@ -213,22 +213,23 @@ Gross booking:                     $1,000.00
 Channel commission (16.5%):       −   $165.00
                                    ──────────
 Channel payout (enters trust):       $835.00
+
+Management fee (18% of $835):    −   $150.30
+GST on management fee (10%):     −    $15.03
+                                   ──────────
+After management:                    $669.67
+
 Cleaning fee:                     −   $120.00
                                    ──────────
-NET INCOME TO OWNER:                 $715.00   ← This appears on the report
-
-Management fee (18%):             −   $128.70
-GST on management fee (10%):      −    $12.87
-                                   ──────────
-After management:                    $573.43
+After cleaning:                      $549.67
 
 Software fee:                     −    $65.99
                                    ──────────
-After software:                      $507.44
+After software:                      $483.68
 
 Expenses (e.g. water bill):       −    $85.00
                                    ──────────
-FINAL OWNER PAYOUT:                  $422.44
+FINAL OWNER PAYOUT:                  $398.68
 ```
 
 ---
@@ -249,17 +250,13 @@ Per-property table with columns:
 
 Shows every booking that elapsed in that month AND whose payout was received.
 
-### Section 2: Cleaning Fees
-Total cleaning fees deducted across all bookings.
-
-### Section 3: Net Income
-Channel payout minus cleaning = Net income to owner.
-This is the owner's "pure income" line.
-
-### Section 4: Management Fee
-- Base: 18% of net income
-- GST: 10% of management fee (1.8% of net income)
+### Section 2: Management Fee
+- Base: 18% of channel payout
+- GST: 10% of management fee (1.8% of channel payout)
 - Total management deduction
+
+### Section 3: Cleaning Fees
+Total cleaning fees deducted across all bookings.
 
 ### Section 5: Monthly Charges
 - Software fee: $65.99 per active property
@@ -321,9 +318,9 @@ Before first use, set up your trust account details in the Setup tab:
 
 | Item | Rate | Applied To |
 |------|------|-----------|
-| Management fee | 18% | Net income (after channel fee and cleaning) |
+| Management fee | 18% | Channel payout (after channel fee, before cleaning) |
 | GST on management | 10% of management fee | Management fee amount |
-| Effective total | 19.8% | Net income |
+| Effective total | 19.8% | Channel payout |
 
 Commission rules are per-owner and can be customised in the Setup tab. Default is 18% `au_management` type for all owners.
 

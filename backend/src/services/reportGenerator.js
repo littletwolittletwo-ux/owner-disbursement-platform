@@ -499,6 +499,8 @@ ${excluded.length > 0 ? `
     <!-- Attachment reference -->
     <p>Please find your <strong>full detailed statement attached</strong> as a PDF. It includes a complete breakdown of all bookings, fees, and calculations for the period.</p>
 
+    <p style="font-size:13px; color:#555;">We've also attached the <strong>LiveLuxe Disbursement Guide</strong> for your reference — it explains our fee structure, calculation methodology, and answers common questions.</p>
+
     <!-- Payment confirmation -->
     <p style="font-size:13px; background:#f0fdf4; padding:10px 14px; border-radius:6px; border:1px solid #bbf7d0;">
       Your payment of <strong style="color:${GREEN};">${formatMoney(finalPayout)}</strong> has been processed to your nominated bank account.
