@@ -30,6 +30,38 @@ function createClient(token) {
 }
 
 /**
+ * Filter out non-booking entries (blocks, cancelled, declined, iCal blocks).
+ */
+function isRealBooking(item) {
+  // Skip cancelled/declined
+  if (item.status === 'cancelled' || item.status === 'declined') return false;
+  // Skip iCal calendar blocks
+  if (item.channelName === 'customIcal') return false;
+  // Skip zero-price entries (usually blocks)
+  if (!item.totalPrice || item.totalPrice <= 0) return false;
+  // Skip guest names that indicate blocks
+  const name = (item.guestName || '').toLowerCase();
+  if (name.includes('not available') || name.includes('blocked') || name.includes('block')) return false;
+  return true;
+}
+
+/**
+ * Resolve platform fee from channel-specific fields.
+ * Airbnb: channelCommissionAmount is null — use airbnbListingHostFee instead.
+ * Booking.com: channelCommissionAmount is populated.
+ */
+function resolvePlatformFee(item) {
+  if (item.channelCommissionAmount != null && item.channelCommissionAmount > 0) {
+    return item.channelCommissionAmount;
+  }
+  // Airbnb-specific: host fee is the platform commission
+  if (item.airbnbListingHostFee != null && item.airbnbListingHostFee > 0) {
+    return item.airbnbListingHostFee;
+  }
+  return '';
+}
+
+/**
  * Map Hostaway reservation to internal format.
  */
 function mapReservation(item) {
@@ -42,9 +74,34 @@ function mapReservation(item) {
     'check out': item.departureDate,
     'booking date': item.reservationDate || item.insertedOn,
     'gross payout': item.totalPrice || item.hostPayout || item.price,
-    'platform fee': item.channelCommissionAmount || '',
+    'platform fee': resolvePlatformFee(item),
     'cleaning fee': item.cleaningFee || 0
   };
+}
+
+/**
+ * Auto-create listings from Hostaway data if they don't exist in the DB.
+ * This ensures listing_id is set on reservations for Property/Owner display.
+ */
+async function ensureListingsExist(reservations) {
+  const listingMapIds = [...new Set(reservations.map(r => String(r.listingMapId)).filter(Boolean))];
+  for (const hwId of listingMapIds) {
+    const existing = await query(
+      `SELECT id FROM listings WHERE hostaway_listing_id = $1 LIMIT 1`,
+      [hwId]
+    );
+    if (existing.rows.length === 0) {
+      // Find the listingName from one of the reservations
+      const sample = reservations.find(r => String(r.listingMapId) === hwId);
+      const name = (sample?.listingName || `Hostaway ${hwId}`).replace(/^\[ACTIVE\]\s*/i, '').trim();
+      await query(
+        `INSERT INTO listings (name, hostaway_listing_id, platform_fee_rates)
+         VALUES ($1, $2, '{"airbnb":0.165,"booking.com":0.165,"vrbo":0.12,"direct":0}')
+         ON CONFLICT DO NOTHING`,
+        [name, hwId]
+      );
+    }
+  }
 }
 
 /**
@@ -90,9 +147,11 @@ export async function syncHostaway(months = 3) {
   const arrivalStartDate = startDate.toISOString().slice(0, 10);
 
   const allReservations = await fetchReservations(client, { arrivalStartDate });
-  const reservations = allReservations.map(mapReservation);
+  const realBookings = allReservations.filter(isRealBooking);
+  await ensureListingsExist(realBookings);
+  const reservations = realBookings.map(mapReservation);
   const inserted = await insertReservations(reservations, 'hostaway');
-  return { skipped: false, listings: listings.length, reservations: inserted.length };
+  return { skipped: false, listings: listings.length, reservations: inserted.length, filtered: allReservations.length - realBookings.length };
 }
 
 /**
@@ -129,8 +188,9 @@ export async function syncHostawayDateRange(startDate, endDate, hostawayListingI
 
   const allReservations = await fetchReservations(client, params);
 
-  // Filter to only those overlapping [startDate, endDate]
+  // Filter to only real bookings overlapping [startDate, endDate]
   const overlapping = allReservations.filter(r => {
+    if (!isRealBooking(r)) return false;
     const checkIn = r.arrivalDate;
     const checkOut = r.departureDate;
     return checkIn < endDate && checkOut > startDate;
@@ -141,6 +201,9 @@ export async function syncHostawayDateRange(startDate, endDate, hostawayListingI
     return r.arrivalDate < startDate || r.departureDate > endDate;
   });
 
+  // Auto-create listings if needed
+  await ensureListingsExist(overlapping);
+
   // Insert into DB
   const mapped = overlapping.map(mapReservation);
   const inserted = await insertReservations(mapped, 'hostaway');
@@ -149,7 +212,8 @@ export async function syncHostawayDateRange(startDate, endDate, hostawayListingI
     skipped: false,
     reservations: inserted.length,
     straddlers: straddlers.length,
-    total: overlapping.length
+    total: overlapping.length,
+    filtered: allReservations.length - overlapping.length
   };
 }
 
