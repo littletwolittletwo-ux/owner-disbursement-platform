@@ -1129,15 +1129,65 @@ function SetupView({ owners, listings, ownerForm, setOwnerForm, createOwner, lis
         </Panel>
       </div>
 
-      {/* All Listings Table */}
-      <Panel title={`All Listings (${listings.length})`}>
-        <DataTable rows={listings} columns={[
-          { key: 'name', label: 'Name' },
-          { key: 'address', label: 'Address' },
-          { key: 'owner_name', label: 'Owner' },
-          { key: 'hostaway_listing_id', label: 'Hostaway ID' },
-          { key: 'airbnb_listing_id', label: 'Airbnb ID' },
-        ]} maxRows={100} />
+      {/* All Listings Table — with inline owner assignment */}
+      <Panel title={`All Listings (${listings.length})`} actions={
+        <span className="text-xs text-slate-400">{listings.filter(l => !l.owner_id).length} unassigned</span>
+      }>
+        {listings.length === 0 ? <p className="text-sm text-slate-400 py-2">No listings.</p> : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Hostaway ID</th>
+                  <th className="px-3 py-2">Owner</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listings.map(l => (
+                  <tr key={l.id} className="border-b last:border-0 hover:bg-slate-50">
+                    <td className="px-3 py-2 max-w-xs truncate">{l.name}</td>
+                    <td className="px-3 py-2 text-slate-500">{l.hostaway_listing_id || '—'}</td>
+                    <td className="px-3 py-1.5">
+                      <select
+                        className={`w-full rounded border px-2 py-1 text-sm ${l.owner_id ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
+                        value={l.owner_id || ''}
+                        onChange={async (e) => {
+                          try {
+                            await put(`/listings/${l.id}`, { owner_id: e.target.value || null });
+                            listingsReload();
+                          } catch (err) { alert(err.message); }
+                        }}
+                      >
+                        <option value="">— Unassigned —</option>
+                        {owners.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {listings.filter(l => !l.owner_id).length > 0 && (
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              className="rounded bg-gold px-3 py-1.5 text-xs font-semibold text-white hover:bg-gold/90"
+              onClick={async () => {
+                if (!owners.length) return alert('Add owners first');
+                const defaultOwner = owners[0].id;
+                const unassigned = listings.filter(l => !l.owner_id);
+                for (const l of unassigned) {
+                  await put(`/listings/${l.id}`, { owner_id: defaultOwner });
+                }
+                listingsReload();
+              }}
+            >
+              Assign all unassigned to {owners[0]?.name || 'first owner'}
+            </button>
+            <span className="text-xs text-slate-400">Then reassign individually as needed</span>
+          </div>
+        )}
       </Panel>
 
       {/* All Owners Table */}
