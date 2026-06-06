@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Building2, Calculator, ChevronDown, ChevronUp, DollarSign, Download, FileText, Link2, Mail, RefreshCcw, Settings, Upload, WalletCards, X } from 'lucide-react';
+import { Building2, Calculator, Calendar, Check, ChevronDown, ChevronUp, DollarSign, Download, Eye, FileText, Link2, Mail, Pencil, RefreshCcw, Settings, Upload, WalletCards, X } from 'lucide-react';
 import './main.css';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -82,11 +82,11 @@ function Input({ value, onChange, placeholder, type = 'text', className = '' }) 
   return <input className={`w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold ${className}`} type={type} required placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
-function Uploader({ label, type, onUpload }) {
+function Uploader({ label, type, onUpload, accept }) {
   return <label className="mb-2 flex cursor-pointer items-center justify-between rounded border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 hover:border-gold hover:bg-gold/5 transition-colors">
     <span><Upload className="mr-2 inline h-4 w-4 text-gold" />{label}</span>
-    <input className="hidden" type="file" accept=".csv,.xlsx,.xls,.pdf" onChange={(e) => e.target.files?.[0] && onUpload(type, e.target.files[0])} />
-    <span className="text-xs text-slate-400">CSV/XLSX/PDF</span>
+    <input className="hidden" type="file" accept={accept || ".csv,.xlsx,.xls,.pdf"} onChange={(e) => e.target.files?.[0] && onUpload(type, e.target.files[0])} />
+    <span className="text-xs text-slate-400">{accept === '.csv' ? 'CSV' : accept === '.pdf' ? 'PDF' : 'CSV/XLSX/PDF'}</span>
   </label>;
 }
 
@@ -96,13 +96,13 @@ function DataTable({ rows, columns, maxRows = 50, onRowClick }) {
   return <div className="overflow-x-auto">
     <table className="min-w-full text-left text-sm">
       <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
-        <tr>{columns.map((col) => <th key={col.key || col} className="whitespace-nowrap px-3 py-2">{(col.label || col).replaceAll('_', ' ')}</th>)}</tr>
+        <tr>{columns.map((col, i) => <th key={(col.key || col) + i} className="whitespace-nowrap px-3 py-2">{(col.label || col).replaceAll('_', ' ')}</th>)}</tr>
       </thead>
       <tbody>
         {visibleRows.map((row, i) => <tr key={row.id || i} className={`border-b last:border-0 hover:bg-slate-50 ${onRowClick ? 'cursor-pointer' : ''}`} onClick={() => onRowClick?.(row)}>
-          {columns.map((col) => {
+          {columns.map((col, j) => {
             const key = col.key || col;
-            return <td key={key} className="max-w-xs truncate px-3 py-2">{formatCell(row[key])}</td>;
+            return <td key={key + j} className="max-w-xs truncate px-3 py-2">{col.render ? col.render(row) : formatCell(row[key])}</td>;
           })}
         </tr>)}
       </tbody>
@@ -147,6 +147,7 @@ function App() {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [matchCandidates, setMatchCandidates] = useState([]);
   const [showPdfPreview, setShowPdfPreview] = useState(null);
+  const [showEmailPreview, setShowEmailPreview] = useState(null);
   const [showTrustConfig, setShowTrustConfig] = useState(false);
   const [trustConfig, setTrustConfig] = useState({ bsb: '', account_number: '', account_name: 'LiveLuxe Trust Account', bank_name: 'NAB', financial_institution_code: 'NAB', apca_user_id: '000000' });
   const [sidebarSection, setSidebarSection] = useState('registry');
@@ -174,8 +175,7 @@ function App() {
     try {
       await post('/api/listings', {
         ...listingForm,
-        platform_fee_rates: { airbnb: 0.165, 'booking.com': 0.165, vrbo: 0.12, direct: 0 },
-        monthly_software_fee: 65.99
+        platform_fee_rates: { airbnb: 0.165, 'booking.com': 0.165, vrbo: 0.12, direct: 0 }
       });
       setListingForm({ owner_id: '', name: '', address: '', airbnb_listing_id: '', booking_property_id: '', vrbo_id: '', hostaway_listing_id: '' });
       listings.reload();
@@ -285,6 +285,28 @@ function App() {
     } catch (e) { flash(e.message, 'error'); }
   }
 
+  function viewReport(disbursementId) {
+    window.open(`${API}/api/disbursements/${disbursementId}/report`, '_blank');
+  }
+
+  async function downloadReportPdf(disbursementId) {
+    try {
+      const response = await fetch(`${API}/api/disbursements/${disbursementId}/report/pdf`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `LiveLuxe-Report-${disbursementId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      flash('Report PDF downloaded', 'success');
+    } catch (e) { flash(e.message, 'error'); }
+  }
+
+  function previewEmail(disbursementId) {
+    setShowEmailPreview(`${API}/api/disbursements/${disbursementId}/email-preview`);
+  }
+
   async function loadTrustConfig() {
     try {
       const response = await fetch(`${API}/api/trust-account-config`);
@@ -305,6 +327,8 @@ function App() {
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: <WalletCards className="h-4 w-4" /> },
+    { id: 'reservations', label: 'Reservations', icon: <Calendar className="h-4 w-4" /> },
+    { id: 'deals', label: 'Property Deals', icon: <Building2 className="h-4 w-4" /> },
     { id: 'setup', label: 'Setup', icon: <Settings className="h-4 w-4" /> },
   ];
 
@@ -349,9 +373,16 @@ function App() {
         month={month} dashboard={dashboard} owners={ownerOptions}
         uploadFile={uploadFile} syncHostaway={syncHostaway} sendEmails={sendEmails}
         downloadAba={downloadAba} openManualMatch={openManualMatch} previewPdf={previewPdf}
+        viewReport={viewReport} downloadReportPdf={downloadReportPdf} previewEmail={previewEmail}
         loadTrustConfig={loadTrustConfig} flash={flash}
         sidebarSection={sidebarSection} setSidebarSection={setSidebarSection}
       />}
+
+      {tab === 'reservations' && <ReservationsView
+        month={month} listings={listings.data || []} flash={flash}
+      />}
+
+      {tab === 'deals' && <PropertyDealsView flash={flash} />}
 
       {tab === 'setup' && <SetupView
         owners={ownerOptions} listings={listings.data || []}
@@ -392,6 +423,10 @@ function App() {
         {showPdfPreview && <iframe src={showPdfPreview} className="w-full h-[70vh] rounded border" />}
       </Modal>
 
+      <Modal title="Email Preview" open={!!showEmailPreview} onClose={() => setShowEmailPreview(null)}>
+        {showEmailPreview && <iframe src={showEmailPreview} className="w-full h-[70vh] rounded border" />}
+      </Modal>
+
       <Modal title="Trust Account Config" open={showTrustConfig} onClose={() => setShowTrustConfig(false)}>
         <form onSubmit={saveTrustConfig} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -413,7 +448,7 @@ function App() {
 
 // ── Dashboard View ──
 
-function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sendEmails, downloadAba, openManualMatch, previewPdf, loadTrustConfig, flash, sidebarSection, setSidebarSection }) {
+function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sendEmails, downloadAba, openManualMatch, previewPdf, viewReport, downloadReportPdf, previewEmail, loadTrustConfig, flash, sidebarSection, setSidebarSection }) {
   return (
     <>
       <section className="mx-auto grid max-w-7xl gap-4 px-6 py-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -427,8 +462,14 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
         {/* Sidebar */}
         <aside className="space-y-4">
           <SidebarToggle label="Data Ingestion" section="ingestion" current={sidebarSection} onToggle={setSidebarSection}>
+            <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">Channel Payouts</p>
+            <div className="space-y-1 mb-3">
+              <Uploader label="Airbnb Earnings" type="trust" onUpload={uploadFile} accept=".pdf,.csv" />
+              <Uploader label="Booking.com Payouts" type="trust" onUpload={uploadFile} accept=".csv" />
+              <Uploader label="Bank Statement" type="trust" onUpload={uploadFile} />
+            </div>
+            <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">Other Data</p>
             <div className="space-y-1">
-              <Uploader label="Trust Account Statement" type="trust" onUpload={uploadFile} />
               <Uploader label="Reservations Export" type="reservations" onUpload={uploadFile} />
               <Uploader label="Owner Expenses" type="expenses" onUpload={uploadFile} />
               <Uploader label="Cleaning & Utilities" type="cleaning-utilities" onUpload={uploadFile} />
@@ -459,8 +500,9 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
               <div className="flex justify-between"><span>VRBO Fee</span><span className="font-medium text-navy">12%</span></div>
               <div className="flex justify-between"><span>Direct Fee</span><span className="font-medium text-navy">0%</span></div>
               <hr />
-              <div className="flex justify-between"><span>Management Fee</span><span className="font-medium text-navy">18% + GST</span></div>
-              <div className="flex justify-between"><span>Software Fee</span><span className="font-medium text-navy">$65.99/mo</span></div>
+              <div className="flex justify-between"><span>Default Mgmt Fee (incGST)</span><span className="font-medium text-navy">19.8%</span></div>
+              <div className="flex justify-between"><span>Tech Fee</span><span className="font-medium text-navy">$64.99/listing/mo</span></div>
+              <p className="text-slate-400 text-[10px]">Per-property rates in Property Deals tab</p>
             </div>
           </Panel>
         </aside>
@@ -494,7 +536,7 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
                 </button>
               </div>
             }>
-            <DisbursementTable summaries={dashboard.data.ownerSummaries || []} onPreviewPdf={previewPdf} />
+            <DisbursementTable summaries={dashboard.data.ownerSummaries || []} onPreviewPdf={previewPdf} onViewReport={viewReport} onDownloadPdf={downloadReportPdf} onPreviewEmail={previewEmail} />
           </Panel>
 
           <div className="grid gap-5 xl:grid-cols-2">
@@ -531,7 +573,7 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
 
 // ── Disbursement Table with AU Breakdown ──
 
-function DisbursementTable({ summaries, onPreviewPdf }) {
+function DisbursementTable({ summaries, onPreviewPdf, onViewReport, onDownloadPdf, onPreviewEmail }) {
   const [expanded, setExpanded] = useState(null);
   if (!summaries.length) return <p className="text-sm text-slate-400 py-2">No disbursements calculated yet.</p>;
 
@@ -545,24 +587,31 @@ function DisbursementTable({ summaries, onPreviewPdf }) {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-lg font-bold text-navy">{money(s.final_owner_payout)}</span>
-            <button className="rounded border px-2 py-1 text-xs text-slate-500 hover:border-gold hover:text-gold" onClick={(e) => { e.stopPropagation(); onPreviewPdf(s.id); }}>
-              <FileText className="inline h-3 w-3 mr-1" />PDF
-            </button>
+            <div className="flex items-center gap-1">
+              <button className="rounded border px-2 py-1 text-xs text-slate-500 hover:border-blue-400 hover:text-blue-600" title="View Report" onClick={(e) => { e.stopPropagation(); onViewReport(s.id); }}>
+                <Eye className="inline h-3 w-3 mr-1" />Report
+              </button>
+              <button className="rounded border px-2 py-1 text-xs text-slate-500 hover:border-gold hover:text-gold" title="Download PDF" onClick={(e) => { e.stopPropagation(); onDownloadPdf(s.id); }}>
+                <Download className="inline h-3 w-3 mr-1" />PDF
+              </button>
+              <button className="rounded border px-2 py-1 text-xs text-slate-500 hover:border-purple-400 hover:text-purple-600" title="Preview Email" onClick={(e) => { e.stopPropagation(); onPreviewEmail(s.id); }}>
+                <Mail className="inline h-3 w-3 mr-1" />Email
+              </button>
+            </div>
           </div>
         </div>
         {expanded === s.id && (
           <div className="border-t bg-slate-50 px-4 py-3 text-sm space-y-1">
             <Row label="Gross Bookings" value={s.gross_channel_payout} />
             <Row label="Channel Fees" value={-Number(s.platform_fees)} negative />
-            <Row label="Channel Payout" value={s.net_channel_revenue} bold />
+            <Row label="Net Payout" value={s.net_channel_revenue} bold />
+            <hr className="my-1" />
+            <Row label="Management Fee (incGST)" value={-Number(s.management_fee_base)} negative />
+            {Number(s.mgmt_fee_discount) > 0 && <Row label="Mgmt Fee Discount" value={Number(s.mgmt_fee_discount)} />}
+            <Row label="Effective Management" value={-Number(s.management_commission)} negative bold />
+            <hr className="my-1" />
             <Row label="Cleaning Fees" value={-Number(s.cleaning_costs)} negative />
-            <Row label="Net Income" value={s.net_income} bold />
-            <hr className="my-1" />
-            <Row label="Management Fee (18%)" value={-Number(s.management_fee_base)} negative />
-            <Row label="GST on Mgmt Fee (10%)" value={-Number(s.management_fee_gst)} negative />
-            <Row label="Total Management" value={-Number(s.management_commission)} negative bold />
-            <hr className="my-1" />
-            <Row label="Software Fees" value={-Number(s.software_fees)} negative />
+            {Number(s.software_fees) > 0 && <Row label="Tech Fee ($64.99/listing)" value={-Number(s.software_fees)} negative />}
             <Row label="Owner Expenses" value={-Number(s.owner_expenses)} negative />
             <Row label="Utilities" value={-Number(s.utilities)} negative />
             <hr className="my-1" />
@@ -596,6 +645,409 @@ function SidebarToggle({ label, section, current, onToggle, children }) {
     </button>
     {open && <div className="border-t px-4 pb-4 pt-3">{children}</div>}
   </div>;
+}
+
+// ── Reservations View ──
+
+function ReservationsView({ month, listings, flash }) {
+  const [startDate, setStartDate] = useState(() => `${month}-01`);
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date(`${month}-01T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    d.setUTCDate(0);
+    return d.toISOString().slice(0, 10);
+  });
+  const [propertyFilter, setPropertyFilter] = useState('');
+  const [platformFilter, setPlatformFilter] = useState('');
+  const [reservations, setReservations] = useState([]);
+  const [straddlers, setStraddlers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [showStraddlers, setShowStraddlers] = useState(false);
+
+  // Update dates when month changes
+  useEffect(() => {
+    setStartDate(`${month}-01`);
+    const d = new Date(`${month}-01T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    d.setUTCDate(0);
+    setEndDate(d.toISOString().slice(0, 10));
+  }, [month]);
+
+  // Fetch reservations when filters change
+  const fetchReservations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ startDate, endDate, includeStraddlers: 'true' });
+      if (propertyFilter) params.set('listingId', propertyFilter);
+      if (platformFilter) params.set('platform', platformFilter);
+      const response = await fetch(`${API}/api/reservations/query?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+        setReservations(data);
+      }
+    } catch (e) { flash(e.message, 'error'); }
+    setLoading(false);
+  }, [startDate, endDate, propertyFilter, platformFilter]);
+
+  // Fetch straddlers for current month
+  const fetchStraddlers = useCallback(async () => {
+    try {
+      const response = await fetch(`${API}/api/reservations/straddlers/${month}`);
+      if (response.ok) setStraddlers(await response.json());
+    } catch (e) { /* silent */ }
+  }, [month]);
+
+  useEffect(() => { fetchReservations(); }, [fetchReservations]);
+  useEffect(() => { fetchStraddlers(); }, [fetchStraddlers]);
+
+  async function syncRange() {
+    setSyncing(true);
+    try {
+      const result = await post('/api/hostaway/sync-range', { startDate, endDate });
+      if (result.skipped) {
+        flash(result.reason, 'error');
+      } else {
+        flash(`Synced ${result.reservations} reservations (${result.straddlers} straddlers)`, 'success');
+        fetchReservations();
+        fetchStraddlers();
+      }
+    } catch (e) { flash(e.message, 'error'); }
+    setSyncing(false);
+  }
+
+  async function downloadCSV() {
+    try {
+      const params = new URLSearchParams({ startDate, endDate });
+      if (propertyFilter) params.set('listingId', propertyFilter);
+      if (platformFilter) params.set('platform', platformFilter);
+      const response = await fetch(`${API}/api/reservations/csv?${params}`);
+      if (!response.ok) { flash('CSV download failed', 'error'); return; }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reservations-${startDate}-to-${endDate}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      flash('CSV downloaded', 'success');
+    } catch (e) { flash(e.message, 'error'); }
+  }
+
+  const metrics = useMemo(() => {
+    const total = reservations.length;
+    const straddlerCount = reservations.filter(r => r.is_straddler).length;
+    const totalGross = reservations.reduce((sum, r) => sum + Number(r.gross_amount || 0), 0);
+    const platforms = [...new Set(reservations.map(r => r.platform))].length;
+    return { total, straddlerCount, totalGross, platforms };
+  }, [reservations]);
+
+  // Unique properties for filter dropdown
+  const propertyOptions = useMemo(() => {
+    const props = listings.filter(l => l.id).map(l => ({ id: l.id, name: l.name }));
+    return props.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [listings]);
+
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-5 space-y-5">
+      {/* Metrics */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric title="Total Reservations" value={metrics.total} icon={<Calendar />} />
+        <Metric title="Straddling Bookings" value={metrics.straddlerCount} icon={<RefreshCcw />} accent />
+        <Metric title="Total Gross" value={money(metrics.totalGross)} icon={<DollarSign />} />
+        <Metric title="Platforms" value={metrics.platforms} icon={<Building2 />} />
+      </div>
+
+      {/* Filters & Actions */}
+      <Panel title="Hostaway Reservations" actions={
+        <div className="flex items-center gap-2">
+          <button onClick={syncRange} disabled={syncing}
+            className="rounded bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy/90 disabled:opacity-50">
+            <RefreshCcw className={`mr-1 inline h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync from Hostaway'}
+          </button>
+          <button onClick={downloadCSV}
+            className="rounded bg-gold px-3 py-1.5 text-xs font-semibold text-ink hover:bg-gold/90">
+            <Download className="mr-1 inline h-3 w-3" />CSV
+          </button>
+        </div>
+      }>
+        {/* Filter Bar */}
+        <div className="flex flex-wrap items-end gap-3 mb-4 pb-4 border-b">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Start Date</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-gold focus:outline-none" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">End Date</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-gold focus:outline-none" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Property</label>
+            <select value={propertyFilter} onChange={e => setPropertyFilter(e.target.value)}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm max-w-[220px]">
+              <option value="">All Properties</option>
+              {propertyOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Platform</label>
+            <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm">
+              <option value="">All</option>
+              <option value="airbnb">Airbnb</option>
+              <option value="booking">Booking.com</option>
+              <option value="vrbo">VRBO</option>
+              <option value="direct">Direct</option>
+            </select>
+          </div>
+          <button onClick={fetchReservations} disabled={loading}
+            className="rounded bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 disabled:opacity-50">
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+
+        {/* Reservation Table */}
+        {loading ? (
+          <p className="text-sm text-slate-400 py-4 text-center">Loading reservations...</p>
+        ) : (
+          <DataTable rows={reservations} maxRows={100} columns={[
+            { key: 'guest_name', label: 'Guest' },
+            { key: 'platform', label: 'Platform', render: (r) => (
+              <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                (r.platform || '').toLowerCase().includes('airbnb') ? 'bg-red-50 text-red-600' :
+                (r.platform || '').toLowerCase().includes('booking') ? 'bg-blue-50 text-blue-600' :
+                (r.platform || '').toLowerCase().includes('vrbo') ? 'bg-purple-50 text-purple-600' :
+                'bg-slate-50 text-slate-600'
+              }`}>{r.platform}</span>
+            )},
+            { key: 'listing_name', label: 'Property' },
+            { key: 'owner_name', label: 'Owner' },
+            { key: 'check_in', label: 'Check In' },
+            { key: 'check_out', label: 'Check Out' },
+            { key: 'gross_amount', label: 'Gross' },
+            { key: 'net_amount', label: 'Net' },
+            { key: 'cleaning_fee', label: 'Cleaning' },
+            { key: 'is_straddler', label: 'Straddler', render: (r) => r.is_straddler ? (
+              <span className="inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
+                {r.straddle_direction === 'incoming' ? 'From Prior' : r.straddle_direction === 'outgoing' ? 'To Next' : 'Yes'}
+              </span>
+            ) : <span className="text-slate-300 text-xs">-</span> },
+          ]} />
+        )}
+      </Panel>
+
+      {/* Expense Upload Panel */}
+      <Panel title="Upload Owner Expenses" actions={
+        <span className="text-xs text-slate-400">CSV with columns: listing id/name, date, description, amount</span>
+      }>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs text-slate-500 mb-2">Upload a CSV of expenses to deduct from owner payouts. Each row is matched to a listing and deducted during disbursement calculation.</p>
+            <Uploader label="Owner Expenses CSV" type="expenses" onUpload={(type, file) => {
+              const form = new FormData();
+              form.append('file', file);
+              fetch(`${API}/api/uploads/${type}`, { method: 'POST', body: form })
+                .then(r => r.json())
+                .then(json => { flash(`Expenses uploaded: ${json.rows || 0} rows processed`, 'success'); })
+                .catch(e => flash(e.message, 'error'));
+            }} accept=".csv,.xlsx" />
+          </div>
+          <div className="text-xs text-slate-500 space-y-1">
+            <p className="font-medium text-slate-600">CSV Format:</p>
+            <p><code className="bg-slate-100 px-1 rounded">listing id</code> — Hostaway ID or listing name</p>
+            <p><code className="bg-slate-100 px-1 rounded">date</code> — Expense date (YYYY-MM-DD)</p>
+            <p><code className="bg-slate-100 px-1 rounded">description</code> — What the expense is for</p>
+            <p><code className="bg-slate-100 px-1 rounded">amount</code> — Dollar amount to deduct</p>
+            <p className="pt-1 text-slate-400">A $64.99 tech fee per listing is automatically applied during calculation.</p>
+          </div>
+        </div>
+      </Panel>
+
+      {/* Straddling Bookings Panel */}
+      {straddlers.length > 0 && (
+        <Panel title={`Straddling Bookings for ${month}`} actions={
+          <button onClick={() => setShowStraddlers(!showStraddlers)}
+            className="text-xs text-slate-500 hover:text-navy">
+            {showStraddlers ? <ChevronUp className="inline h-4 w-4" /> : <ChevronDown className="inline h-4 w-4" />}
+            {showStraddlers ? 'Hide' : 'Show'} ({straddlers.length})
+          </button>
+        }>
+          {showStraddlers && (
+            <>
+              <p className="text-xs text-slate-500 mb-3">
+                These bookings cross month boundaries and need pro-rating in the disbursement calculation.
+                <span className="font-medium text-amber-600"> Incoming</span> = started in prior month,
+                <span className="font-medium text-amber-600"> Outgoing</span> = extends into next month.
+              </p>
+              <DataTable rows={straddlers} maxRows={50} columns={[
+                { key: 'guest_name', label: 'Guest' },
+                { key: 'listing_name', label: 'Property' },
+                { key: 'owner_name', label: 'Owner' },
+                { key: 'check_in', label: 'Check In' },
+                { key: 'check_out', label: 'Check Out' },
+                { key: 'straddle_direction', label: 'Direction', render: (r) => (
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                    r.straddle_direction === 'incoming' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
+                  }`}>{r.straddle_direction === 'incoming' ? 'From Prior Month' : 'To Next Month'}</span>
+                )},
+                { key: 'period_nights', label: 'Period Nights' },
+                { key: 'total_nights', label: 'Total Nights' },
+                { key: 'gross_amount', label: 'Full Gross' },
+              ]} />
+            </>
+          )}
+        </Panel>
+      )}
+    </section>
+  );
+}
+
+// ── Property Deals View ──
+
+function PropertyDealsView({ flash }) {
+  const deals = useApi('/api/listings/deals', []);
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const ownerNames = useMemo(() => {
+    const names = [...new Set((deals.data || []).map(d => d.owner_name).filter(Boolean))];
+    return names.sort();
+  }, [deals.data]);
+
+  const filtered = useMemo(() => {
+    if (!ownerFilter) return deals.data || [];
+    return (deals.data || []).filter(d => d.owner_name === ownerFilter);
+  }, [deals.data, ownerFilter]);
+
+  const metrics = useMemo(() => {
+    const all = deals.data || [];
+    return {
+      total: all.length,
+      custom: all.filter(d => d.rate_source === 'custom').length,
+      defaultRate: all.filter(d => d.rate_source === 'default').length,
+      rule: all.filter(d => d.rate_source === 'rule').length,
+    };
+  }, [deals.data]);
+
+  function startEdit(row) {
+    setEditingId(row.id);
+    setEditValue(row.management_fee_pct != null ? (Number(row.management_fee_pct) * 100).toFixed(1) : '');
+  }
+
+  async function saveEdit(listingId) {
+    setSaving(true);
+    try {
+      const pct = editValue.trim() === '' ? null : Number(editValue) / 100;
+      if (pct !== null && (isNaN(pct) || pct < 0 || pct > 1)) {
+        flash('Rate must be 0-100% or empty for default', 'error');
+        setSaving(false);
+        return;
+      }
+      await put(`/api/listings/${listingId}`, { management_fee_pct: pct });
+      setEditingId(null);
+      deals.reload();
+      flash('Management fee updated', 'success');
+    } catch (e) { flash(e.message, 'error'); }
+    setSaving(false);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditValue('');
+  }
+
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-5 space-y-5">
+      {/* Summary Metrics */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric title="Total Properties" value={metrics.total} icon={<Building2 />} />
+        <Metric title="Custom Rates" value={metrics.custom} icon={<Pencil />} accent />
+        <Metric title="Owner Rules" value={metrics.rule} icon={<DollarSign />} />
+        <Metric title="Default (19.8%)" value={metrics.defaultRate} icon={<Settings />} />
+      </div>
+
+      {/* Filter + Table */}
+      <Panel title="Property Management Fees" actions={
+        <select className="rounded border border-slate-300 px-3 py-1.5 text-sm" value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}>
+          <option value="">All Owners</option>
+          {ownerNames.map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+      }>
+        {filtered.length === 0
+          ? <p className="text-sm text-slate-400 py-2">No listings found.</p>
+          : <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Property</th>
+                    <th className="px-3 py-2">Owner</th>
+                    <th className="px-3 py-2">Hostaway ID</th>
+                    <th className="px-3 py-2">Mgmt Fee %</th>
+                    <th className="px-3 py-2">Source</th>
+                    <th className="px-3 py-2">Cleaning Fee</th>
+                    <th className="px-3 py-2">Waiver %</th>
+                    <th className="px-3 py-2">Boost</th>
+                    <th className="px-3 py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(row => (
+                    <tr key={row.id} className="border-b last:border-0 hover:bg-slate-50">
+                      <td className="px-3 py-2 font-medium max-w-xs truncate">{row.name}</td>
+                      <td className="px-3 py-2 text-slate-600">{row.owner_name}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs">{row.hostaway_listing_id || '\u2014'}</td>
+                      <td className="px-3 py-2">
+                        {editingId === row.id
+                          ? <div className="flex items-center gap-1">
+                              <input
+                                className="w-20 rounded border border-gold px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
+                                type="number" step="0.1" min="0" max="100"
+                                placeholder="18.0"
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveEdit(row.id); if (e.key === 'Escape') cancelEdit(); }}
+                                autoFocus
+                              />
+                              <span className="text-xs text-slate-400">%</span>
+                              <button disabled={saving} onClick={() => saveEdit(row.id)} className="text-green-600 hover:text-green-800"><Check className="h-4 w-4" /></button>
+                              <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+                            </div>
+                          : <span className="font-semibold text-navy">{(Number(row.effective_mgmt_rate) * 100).toFixed(1)}%</span>
+                        }
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          row.rate_source === 'custom' ? 'bg-gold/20 text-gold' :
+                          row.rate_source === 'rule' ? 'bg-blue-50 text-blue-600' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {row.rate_source === 'custom' ? 'Custom' : row.rate_source === 'rule' ? 'Owner Rule' : 'Default'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{money(row.cleaning_fee_baseline)}</td>
+                      <td className="px-3 py-2">{Number(row.mgmt_fee_waiver_pct) > 0 ? `${(Number(row.mgmt_fee_waiver_pct) * 100).toFixed(0)}%` : '\u2014'}</td>
+                      <td className="px-3 py-2">{Number(row.mgmt_fee_boost) > 0 ? money(row.mgmt_fee_boost) : '\u2014'}</td>
+                      <td className="px-3 py-2">
+                        {editingId !== row.id && (
+                          <button onClick={() => startEdit(row)} className="rounded border px-2 py-1 text-xs text-slate-500 hover:border-gold hover:text-gold">
+                            <Pencil className="inline h-3 w-3 mr-1" />Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        }
+      </Panel>
+    </section>
+  );
 }
 
 // ── Setup View ──
@@ -653,19 +1105,19 @@ function SetupView({ owners, listings, ownerForm, setOwnerForm, createOwner, lis
               <option value="direct">Direct</option>
             </select>
             <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={commissionForm.type} onChange={(e) => setCommissionForm({ ...commissionForm, type: e.target.value })}>
-              <option value="au_management">AU Management (% + GST)</option>
+              <option value="au_management">AU Management (incGST)</option>
               <option value="percentage_net">Percentage of Net</option>
               <option value="percentage_gross">Percentage of Gross</option>
               <option value="flat_fee">Flat Fee</option>
             </select>
-            <Input placeholder="Rate (e.g. 0.18 = 18%)" value={commissionForm.rate} onChange={(rate) => setCommissionForm({ ...commissionForm, rate })} type="number" />
+            <Input placeholder="Rate (e.g. 0.198 = 19.8% incGST)" value={commissionForm.rate} onChange={(rate) => setCommissionForm({ ...commissionForm, rate })} type="number" />
             <button className="w-full rounded bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy/90">Save Rule</button>
           </form>
           <div className="max-h-48 overflow-auto text-xs">
             {commissionRules.map(r => (
               <div key={r.id} className="flex justify-between border-b py-1.5 last:border-0">
                 <span>{r.owner_name} - {r.platform}</span>
-                <span className="font-medium">{r.type === 'au_management' ? `${(r.rate * 100).toFixed(0)}% + GST` : `${(r.rate * 100).toFixed(0)}%`}</span>
+                <span className="font-medium">{r.type === 'au_management' ? `${(r.rate * 100).toFixed(1)}% incGST` : `${(r.rate * 100).toFixed(0)}%`}</span>
               </div>
             ))}
           </div>
@@ -679,7 +1131,7 @@ function SetupView({ owners, listings, ownerForm, setOwnerForm, createOwner, lis
           { key: 'address', label: 'Address' },
           { key: 'owner_name', label: 'Owner' },
           { key: 'hostaway_listing_id', label: 'Hostaway ID' },
-          { key: 'monthly_software_fee', label: 'Software Fee' },
+          { key: 'airbnb_listing_id', label: 'Airbnb ID' },
         ]} maxRows={100} />
       </Panel>
 

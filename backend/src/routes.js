@@ -16,7 +16,9 @@ import {
 } from './services/reconciliation.js';
 import { calculatePayout } from './services/payoutEngine.js';
 import { calculateOwnerDisbursement, generateDisbursementPdf, bulkSend } from './services/disbursementEngine.js';
-import { syncHostaway } from './services/hostaway.js';
+import { generateReportHtml, generateEmailBodyHtml } from './services/reportGenerator.js';
+import { renderHtmlToPdf } from './services/pdfRenderer.js';
+import { syncHostaway, syncHostawayDateRange, syncHostawayMonth, queryReservations, getStraddlingBookings, reservationsToCSV } from './services/hostaway.js';
 import { generateMonthlyAba } from './services/abaGenerator.js';
 
 const upload = multer({ dest: process.env.VERCEL ? '/tmp/uploads' : 'uploads/' });
@@ -93,6 +95,71 @@ router.post('/listings', [body('name').notEmpty(), body('owner_id').notEmpty()],
     ]
   );
   res.status(201).json(result.rows[0]);
+});
+
+// ── Property Deals (per-listing management fees) ──
+// IMPORTANT: /deals routes registered BEFORE /:id to avoid route conflicts
+router.get('/listings/deals', async (_req, res) => {
+  const rows = await query(
+    `SELECT l.id, l.name, l.address, l.hostaway_listing_id, l.cleaning_fee_baseline,
+            l.management_fee_pct, l.owner_id,
+            COALESCE(l.mgmt_fee_waiver_pct, 0) as mgmt_fee_waiver_pct,
+            COALESCE(l.mgmt_fee_boost, 0) as mgmt_fee_boost,
+            o.name owner_name,
+            COALESCE(l.management_fee_pct, cr.rate, 0.198) as effective_mgmt_rate,
+            CASE
+              WHEN l.management_fee_pct IS NOT NULL THEN 'custom'
+              WHEN cr.rate IS NOT NULL THEN 'rule'
+              ELSE 'default'
+            END as rate_source
+     FROM listings l
+     LEFT JOIN owners o ON o.id = l.owner_id
+     LEFT JOIN commission_rules cr ON cr.owner_id = l.owner_id
+       AND (cr.listing_id = l.id OR cr.listing_id IS NULL)
+       AND cr.platform = 'all'
+     ORDER BY o.name, l.name`
+  );
+  res.json(rows.rows);
+});
+
+router.put('/listings/deals/bulk', async (req, res) => {
+  const { updates } = req.body; // [{ listing_id, management_fee_pct, mgmt_fee_waiver_pct, mgmt_fee_boost }]
+  if (!Array.isArray(updates)) return res.status(400).json({ error: 'updates must be an array' });
+  const results = [];
+  for (const u of updates) {
+    const sets = ['management_fee_pct = $2'];
+    const vals = [u.listing_id, u.management_fee_pct ?? null];
+    let idx = 3;
+    if ('mgmt_fee_waiver_pct' in u) { sets.push(`mgmt_fee_waiver_pct = $${idx++}`); vals.push(u.mgmt_fee_waiver_pct ?? 0); }
+    if ('mgmt_fee_boost' in u) { sets.push(`mgmt_fee_boost = $${idx++}`); vals.push(u.mgmt_fee_boost ?? 0); }
+    const result = await query(
+      `UPDATE listings SET ${sets.join(', ')} WHERE id = $1 RETURNING id, name, management_fee_pct, mgmt_fee_waiver_pct, mgmt_fee_boost`,
+      vals
+    );
+    if (result.rows[0]) results.push(result.rows[0]);
+  }
+  res.json(results);
+});
+
+router.put('/listings/:id', async (req, res) => {
+  const fields = req.body;
+  const sets = [];
+  const values = [req.params.id];
+  let idx = 2;
+  const allowed = ['name', 'address', 'owner_id', 'airbnb_listing_id', 'booking_property_id',
+    'vrbo_id', 'hostaway_listing_id', 'cleaning_fee_baseline', 'utility_cap',
+    'platform_fee_rates', 'monthly_software_fee', 'management_fee_pct',
+    'mgmt_fee_waiver_pct', 'mgmt_fee_boost'];
+  for (const key of allowed) {
+    if (key in fields) {
+      sets.push(`${key}=$${idx++}`);
+      values.push(fields[key]);
+    }
+  }
+  if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  const result = await query(`UPDATE listings SET ${sets.join(', ')} WHERE id=$1 RETURNING *`, values);
+  if (!result.rows[0]) return res.status(404).json({ error: 'Listing not found' });
+  res.json(result.rows[0]);
 });
 
 // ── Commission Rules ──
@@ -201,6 +268,44 @@ router.get('/disbursements/:id/pdf', async (req, res, next) => {
   }
 });
 
+// ── Report Preview & PDF ──
+router.get('/disbursements/:id/report', async (req, res, next) => {
+  try {
+    const html = await generateReportHtml(req.params.id);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/disbursements/:id/report/pdf', async (req, res, next) => {
+  try {
+    const html = await generateReportHtml(req.params.id);
+    const pdf = await renderHtmlToPdf(html);
+    if (!pdf) {
+      // Fallback: serve HTML if Chrome unavailable
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(html);
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="LiveLuxe-Report-${req.params.id}.pdf"`);
+    res.send(pdf);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/disbursements/:id/email-preview', async (req, res, next) => {
+  try {
+    const html = await generateEmailBodyHtml(req.params.id);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ── Emails ──
 router.post('/emails/:month/send', async (req, res, next) => {
   try {
@@ -259,11 +364,67 @@ router.put('/trust-account-config', async (req, res) => {
   res.status(201).json(result.rows[0]);
 });
 
+// ── Reservations Query & CSV ──
+router.get('/reservations/query', async (req, res, next) => {
+  try {
+    const { startDate, endDate, listingId, hostawayListingId, platform, includeStraddlers } = req.query;
+    const rows = await queryReservations({
+      startDate, endDate, listingId, hostawayListingId, platform,
+      includeStraddlers: includeStraddlers !== 'false'
+    });
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/reservations/csv', async (req, res, next) => {
+  try {
+    const { startDate, endDate, listingId, hostawayListingId, platform } = req.query;
+    const rows = await queryReservations({
+      startDate, endDate, listingId, hostawayListingId, platform,
+      includeStraddlers: true
+    });
+    const csv = reservationsToCSV(rows);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="reservations-${startDate || 'all'}-to-${endDate || 'all'}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/reservations/straddlers/:month', async (req, res, next) => {
+  try {
+    res.json(await getStraddlingBookings(req.params.month));
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ── Hostaway Sync ──
 router.post('/hostaway/sync', async (req, res, next) => {
   try {
     const months = Number(req.query.months || req.body.months || 3);
     res.json(await syncHostaway(months));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/hostaway/sync-range', async (req, res, next) => {
+  try {
+    const { startDate, endDate, hostawayListingId } = req.body;
+    if (!startDate || !endDate) return res.status(400).json({ error: 'startDate and endDate required' });
+    res.json(await syncHostawayDateRange(startDate, endDate, hostawayListingId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/hostaway/sync-month/:month', async (req, res, next) => {
+  try {
+    res.json(await syncHostawayMonth(req.params.month));
   } catch (error) {
     next(error);
   }

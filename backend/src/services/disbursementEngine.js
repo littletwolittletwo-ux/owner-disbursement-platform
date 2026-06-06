@@ -2,28 +2,26 @@ import PDFDocument from 'pdfkit';
 import postmark from 'postmark';
 import { query, withTransaction } from '../db.js';
 import { startEndForMonth } from '../utils/dates.js';
-import { normalizePlatform, roundCurrency } from './payoutEngine.js';
+import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate, countPeriodNights } from './payoutEngine.js';
+import { generateReportHtml, generateEmailBodyHtml } from './reportGenerator.js';
+import { renderHtmlToPdf } from './pdfRenderer.js';
 
-// Management fee rates (Australian STR)
-const DEFAULT_MGMT_RATE = 0.18; // 18%
-const GST_RATE = 0.10;           // 10% GST on management fee
-const DEFAULT_SOFTWARE_FEE = 65.99; // per property per month
+// Management fee rates (Australian STR) — all rates are incGST
+const DEFAULT_MGMT_RATE = 0.198; // 19.8% incGST (= 18% + 10% GST)
+const TECH_FEE_PER_LISTING = 64.99; // $64.99/month per listing tech fee
 
 /**
  * Calculate owner disbursement for a given month.
  *
- * Calculation order:
+ * Calculation order (matches real disbursement reports):
  * 1. Gross booking (what guest paid)
- * 2. - Channel commission (Airbnb 16.5%, Booking.com 16.5%, VRBO 12%)
- * 3. = Channel payout (what enters trust)
- * 4. - Cleaning fee
- * 5. = Net income (shown on owner report)
- * 6. - Management fee (18% of net income)
- * 7. - GST on management fee (10% of management fee)
- * 8. = Owner gross after management
- * 9. - Software fee ($65.99/month per property)
- * 10. - One-off expenses
- * 11. = Final owner payout
+ * 2. - Channel commission (Airbnb 16.5%, Booking.com 16.5%, VRBO 12%, Direct 0%)
+ * 3. = Net payout (channel payout)
+ * 4. - Management fee (incGST rate applied to net payout)
+ * 5. + Management fee discount (waiver % + boost)
+ * 6. - Cleaning fee (per-booking, separate line item)
+ * 7. - One-off expenses
+ * 8. = Final owner payout
  */
 export async function calculateOwnerDisbursement(ownerId, month) {
   const { start, end } = startEndForMonth(month);
@@ -31,13 +29,18 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Get reservations where BOTH conditions are met:
-    // 1. Booking has elapsed (checkout <= end of month)
-    // 2. Payout received in trust account during that month
+    // Get ALL reservations that checked out within the period (spec §3.1)
+    // No longer requires trust transaction match — unpaid bookings are included but flagged
     const reservations = (await client.query(
-      `SELECT r.*, l.name listing_name, l.address, l.monthly_software_fee,
+      `SELECT r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
-              cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers
+              l.management_fee_pct as listing_mgmt_fee_pct,
+              l.cleaning_fee_baseline,
+              COALESCE(l.mgmt_fee_waiver_pct, 0) as listing_waiver_pct,
+              COALESCE(l.mgmt_fee_boost, 0) as listing_boost,
+              cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers,
+              CASE WHEN m.id IS NOT NULL AND t.transaction_date BETWEEN $2 AND $3
+                   THEN true ELSE false END as is_payout_received
        FROM reservations r
        JOIN listings l ON l.id = r.listing_id
        LEFT JOIN commission_rules cr ON cr.owner_id = l.owner_id
@@ -46,8 +49,7 @@ export async function calculateOwnerDisbursement(ownerId, month) {
        LEFT JOIN transaction_reservation_matches m ON m.reservation_id = r.id
        LEFT JOIN trust_transactions t ON t.id = m.trust_transaction_id
        WHERE l.owner_id = $1
-         AND r.check_out <= $3
-         AND t.transaction_date BETWEEN $2 AND $3`,
+         AND r.check_out <= $3`,
       [ownerId, start, end]
     )).rows;
 
@@ -62,45 +64,72 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       [ownerId, start, end]
     )).rows;
 
-    // Calculate per-reservation
+    // Calculate per-reservation with pro-rating (spec §4)
     let totalGross = 0;
     let totalChannelCommission = 0;
     let totalChannelPayout = 0;
     let totalCleaning = 0;
     let totalNetIncome = 0;
-    let totalMgmtFeeBase = 0;
-    let totalMgmtFeeGst = 0;
-    let totalMgmtFeeTotal = 0;
+    let totalMgmtFeeFull = 0;
+    let totalMgmtDiscount = 0;
+    let totalMgmtEffective = 0;
     const listingsWithBookings = new Set();
+    const listingDiscountApplied = new Set(); // track boost per-listing (once per month)
 
     const reservationDetails = reservations.map(r => {
-      const gross = Number(r.gross_amount);
-      const platformFee = Number(r.platform_fee);
+      // Pro-rate straddling bookings (spec §4)
+      const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
+      const share = totalNights === 0 ? 0 : periodNights / totalNights;
+
+      const fullGross = Number(r.gross_amount);
+      const gross = roundCurrency(fullGross * share);
+
+      // Cleaning fee resolution (spec §6): reservation → listing default fallback
+      const rawCleaning = resolveCleaningFee(r);
+      const cleaningFee = roundCurrency(rawCleaning * share);
+
+      // Platform fee: pro-rated
+      const fullPlatformFee = Number(r.platform_fee);
+      const platformFee = roundCurrency(fullPlatformFee * share);
       const channelPayout = roundCurrency(gross - platformFee);
-      const cleaningFee = Number(r.cleaning_fee || 0);
-      const netIncome = roundCurrency(channelPayout - cleaningFee);
 
-      // Management fee calculation
-      const { base: mgmtBase, gst: mgmtGst, total: mgmtTotal } = commissionForReservation(r, netIncome);
+      // Management fee calculated on channel payout (incGST rate, BEFORE cleaning)
+      const mgmtFee = commissionForReservation(r, channelPayout);
 
-      totalGross += gross;
-      totalChannelCommission += platformFee;
-      totalChannelPayout += channelPayout;
-      totalCleaning += cleaningFee;
-      totalNetIncome += netIncome;
-      totalMgmtFeeBase += mgmtBase;
-      totalMgmtFeeGst += mgmtGst;
-      totalMgmtFeeTotal += mgmtTotal;
-      listingsWithBookings.add(r.lid);
+      // Net to owner = channel payout - management - cleaning
+      const netToOwner = roundCurrency(channelPayout - mgmtFee - cleaningFee);
+
+      // Payout timing check (spec §3.2)
+      const expectedPayoutDate = calculateExpectedPayoutDate(r);
+      const isPaid = r.is_payout_received || (expectedPayoutDate && expectedPayoutDate <= end);
+
+      // Only accumulate totals for PAID reservations (spec §3.2)
+      if (isPaid) {
+        totalGross += gross;
+        totalChannelCommission += platformFee;
+        totalChannelPayout += channelPayout;
+        totalCleaning += cleaningFee;
+        totalNetIncome += channelPayout;
+        totalMgmtFeeFull += mgmtFee;
+        listingsWithBookings.add(r.lid);
+      }
 
       return {
         ...r,
+        calc_period_nights: periodNights,
+        calc_total_nights: totalNights,
+        calc_prorate_share: share,
         calc_channel_payout: channelPayout,
         calc_cleaning: cleaningFee,
-        calc_net_income: netIncome,
-        calc_mgmt_base: mgmtBase,
-        calc_mgmt_gst: mgmtGst,
-        calc_mgmt_total: mgmtTotal
+        calc_net_income: channelPayout,
+        calc_mgmt_fee: mgmtFee,
+        calc_net_to_owner: netToOwner,
+        calc_is_paid: isPaid,
+        calc_expected_payout_date: expectedPayoutDate,
+        calc_period_gross: gross,
+        calc_platform_fee: platformFee,
+        calc_waiver_pct: Number(r.listing_waiver_pct || 0),
+        calc_boost: Number(r.listing_boost || 0)
       };
     });
 
@@ -110,72 +139,124 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     totalChannelPayout = roundCurrency(totalChannelPayout);
     totalCleaning = roundCurrency(totalCleaning);
     totalNetIncome = roundCurrency(totalNetIncome);
-    totalMgmtFeeBase = roundCurrency(totalMgmtFeeBase);
-    totalMgmtFeeGst = roundCurrency(totalMgmtFeeGst);
-    totalMgmtFeeTotal = roundCurrency(totalMgmtFeeTotal);
+    totalMgmtFeeFull = roundCurrency(totalMgmtFeeFull);
 
-    // Software fees: $65.99 per listing with bookings this month
-    const softwareFeePerListing = DEFAULT_SOFTWARE_FEE;
-    const softwareFeeTotal = roundCurrency(listingsWithBookings.size * softwareFeePerListing);
+    // Calculate management fee discounts (waiver + boost) per listing
+    for (const listingId of listingsWithBookings) {
+      const sample = reservationDetails.find(r => r.lid === listingId && r.calc_is_paid);
+      if (!sample) continue;
+      const waiverPct = Number(sample.listing_waiver_pct || 0);
+      const boost = Number(sample.listing_boost || 0);
+      // Sum mgmt fees for this listing
+      const listingMgmt = roundCurrency(
+        reservationDetails.filter(r => r.lid === listingId && r.calc_is_paid)
+          .reduce((sum, r) => sum + r.calc_mgmt_fee, 0)
+      );
+      const waiverAmt = roundCurrency(listingMgmt * waiverPct);
+      totalMgmtDiscount += waiverAmt + boost;
+    }
+    totalMgmtDiscount = roundCurrency(totalMgmtDiscount);
+    totalMgmtEffective = roundCurrency(totalMgmtFeeFull - totalMgmtDiscount);
 
     // One-off expenses
     const expenseTotal = roundCurrency(expenses.reduce((sum, e) => sum + Number(e.amount), 0));
     const utilityTotal = roundCurrency(utilities.reduce((sum, u) => sum + Number(u.amount), 0));
 
-    // Final payout
-    const ownerGrossAfterMgmt = roundCurrency(totalNetIncome - totalMgmtFeeTotal);
-    const finalPayout = roundCurrency(ownerGrossAfterMgmt - softwareFeeTotal - expenseTotal - utilityTotal);
+    // Tech fee: $69 per listing with paid bookings this month
+    const techFeeTotal = roundCurrency(listingsWithBookings.size * TECH_FEE_PER_LISTING);
+
+    // Final payout: channel payout - effective management - cleaning - tech fees - expenses
+    const afterMgmt = roundCurrency(totalChannelPayout - totalMgmtEffective);
+    const afterCleaning = roundCurrency(afterMgmt - totalCleaning);
+    const afterTechFee = roundCurrency(afterCleaning - techFeeTotal);
+    const finalPayout = roundCurrency(afterTechFee - expenseTotal - utilityTotal);
 
     // Upsert disbursement record
     const disbursement = (await client.query(
       `INSERT INTO disbursements
        (owner_id, month, gross_channel_payout, platform_fees, net_channel_revenue,
         net_income, management_fee_base, management_fee_gst, management_commission,
-        cleaning_costs, software_fees, owner_expenses, utilities, final_owner_payout)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        mgmt_fee_discount, cleaning_costs, software_fees, owner_expenses, utilities, final_owner_payout)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (owner_id, month) DO UPDATE SET
        gross_channel_payout=EXCLUDED.gross_channel_payout, platform_fees=EXCLUDED.platform_fees,
        net_channel_revenue=EXCLUDED.net_channel_revenue, net_income=EXCLUDED.net_income,
        management_fee_base=EXCLUDED.management_fee_base, management_fee_gst=EXCLUDED.management_fee_gst,
-       management_commission=EXCLUDED.management_commission, cleaning_costs=EXCLUDED.cleaning_costs,
-       software_fees=EXCLUDED.software_fees, owner_expenses=EXCLUDED.owner_expenses,
-       utilities=EXCLUDED.utilities, final_owner_payout=EXCLUDED.final_owner_payout, generated_at=now()
+       management_commission=EXCLUDED.management_commission, mgmt_fee_discount=EXCLUDED.mgmt_fee_discount,
+       cleaning_costs=EXCLUDED.cleaning_costs, software_fees=EXCLUDED.software_fees,
+       owner_expenses=EXCLUDED.owner_expenses, utilities=EXCLUDED.utilities,
+       final_owner_payout=EXCLUDED.final_owner_payout, generated_at=now()
        RETURNING *`,
       [ownerId, month, totalGross, totalChannelCommission, totalChannelPayout,
-       totalNetIncome, totalMgmtFeeBase, totalMgmtFeeGst, totalMgmtFeeTotal,
-       totalCleaning, softwareFeeTotal, expenseTotal, utilityTotal, finalPayout]
+       totalNetIncome, totalMgmtFeeFull, 0, totalMgmtEffective,
+       totalMgmtDiscount, totalCleaning, techFeeTotal, expenseTotal, utilityTotal, finalPayout]
     )).rows[0];
 
     // Rebuild audit trail
     await client.query(`DELETE FROM disbursement_line_items WHERE disbursement_id=$1`, [disbursement.id]);
 
-    // Line items per reservation
+    // Line items per reservation (including unpaid, flagged)
     for (const r of reservationDetails) {
+      const unpaidTag = r.calc_is_paid ? '' : ' [UNPAID]';
+      const proRateNote = r.calc_prorate_share < 1
+        ? ` (${r.calc_period_nights}/${r.calc_total_nights} nights)`
+        : '';
+
       await insertLine(client, disbursement.id, 'gross_booking',
-        `${r.platform} - ${r.guest_name || 'Guest'} @ ${r.listing_name} (${r.check_in} to ${r.check_out})`,
-        Number(r.gross_amount), 'reservations', r.id, { reservation_id: r.id });
+        `${r.platform} - ${r.guest_name || 'Guest'} @ ${r.listing_name} (${r.check_in} to ${r.check_out})${proRateNote}${unpaidTag}`,
+        r.calc_period_gross, 'reservations', r.id,
+        { reservation_id: r.id, period_nights: r.calc_period_nights, total_nights: r.calc_total_nights, prorate_share: r.calc_prorate_share },
+        r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
       await insertLine(client, disbursement.id, 'channel_commission',
-        `${r.platform} channel fee (${(Number(r.platform_fee) / Number(r.gross_amount) * 100).toFixed(1)}%)`,
-        -Number(r.platform_fee), 'reservations', r.id, {});
+        `${r.platform} channel fee (${(Number(r.platform_fee) / Number(r.gross_amount) * 100).toFixed(1)}%)${proRateNote}${unpaidTag}`,
+        -r.calc_platform_fee, 'reservations', r.id, {},
+        r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
+      await insertLine(client, disbursement.id, 'management_fee',
+        `Management fee (incGST) on $${r.calc_channel_payout.toFixed(2)} net payout${proRateNote}${unpaidTag}`,
+        -r.calc_mgmt_fee, 'commission_rules', null,
+        { channel_payout: r.calc_channel_payout },
+        r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
       if (r.calc_cleaning > 0) {
         await insertLine(client, disbursement.id, 'cleaning',
-          `Cleaning - ${r.listing_name}`,
-          -r.calc_cleaning, 'reservations', r.id, {});
+          `Cleaning - ${r.listing_name}${proRateNote}${unpaidTag}`,
+          -r.calc_cleaning, 'reservations', r.id, {},
+          r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
       }
-      await insertLine(client, disbursement.id, 'management_fee',
-        `Management fee 18% on $${r.calc_net_income.toFixed(2)} net income`,
-        -r.calc_mgmt_base, 'commission_rules', null, { net_income: r.calc_net_income });
-      await insertLine(client, disbursement.id, 'management_fee_gst',
-        `GST on management fee (10%)`,
-        -r.calc_mgmt_gst, 'commission_rules', null, {});
     }
 
-    // Software fees per listing
+    // Management fee discounts per listing (waiver + boost)
     for (const listingId of listingsWithBookings) {
-      const listing = reservationDetails.find(r => r.lid === listingId);
-      await insertLine(client, disbursement.id, 'software_fee',
-        `Software fee - ${listing?.listing_name || 'Property'} (KeyNest + PriceLabs + Enzo)`,
-        -softwareFeePerListing, 'listings', listingId, {});
+      const sample = reservationDetails.find(r => r.lid === listingId && r.calc_is_paid);
+      if (!sample) continue;
+      const waiverPct = Number(sample.listing_waiver_pct || 0);
+      const boost = Number(sample.listing_boost || 0);
+      if (waiverPct > 0 || boost > 0) {
+        const listingMgmt = roundCurrency(
+          reservationDetails.filter(r => r.lid === listingId && r.calc_is_paid)
+            .reduce((sum, r) => sum + r.calc_mgmt_fee, 0)
+        );
+        if (waiverPct > 0) {
+          const waiverAmt = roundCurrency(listingMgmt * waiverPct);
+          await insertLine(client, disbursement.id, 'mgmt_discount',
+            `Mgmt fee waiver (${(waiverPct * 100).toFixed(0)}%) - ${sample.listing_name}`,
+            waiverAmt, 'listings', listingId, { waiver_pct: waiverPct });
+        }
+        if (boost > 0) {
+          await insertLine(client, disbursement.id, 'mgmt_discount',
+            `Mgmt fee boost credit - ${sample.listing_name}`,
+            boost, 'listings', listingId, { boost });
+        }
+      }
+    }
+
+    // Tech fee per listing
+    for (const listingId of listingsWithBookings) {
+      const sample = reservationDetails.find(r => r.lid === listingId && r.calc_is_paid);
+      if (sample) {
+        await insertLine(client, disbursement.id, 'tech_fee',
+          `Tech fee - ${sample.listing_name}`,
+          -TECH_FEE_PER_LISTING, 'listings', listingId, { per_listing: TECH_FEE_PER_LISTING });
+      }
     }
 
     // Expenses
@@ -190,40 +271,54 @@ export async function calculateOwnerDisbursement(ownerId, month) {
   });
 }
 
+/**
+ * Resolve cleaning fee: reservation value first, then listing default (spec §6).
+ */
+function resolveCleaningFee(reservation) {
+  const resCleaning = Number(reservation.cleaning_fee || 0);
+  if (resCleaning > 0) return resCleaning;
+  return Number(reservation.cleaning_fee_baseline || 0);
+}
+
+/**
+ * Calculate management fee for a reservation.
+ * All rates are incGST — returns a single total amount (no base/gst split).
+ * Per-listing management_fee_pct takes precedence over commission_rules.
+ */
 function commissionForReservation(reservation, netIncome) {
+  // Per-listing management_fee_pct (incGST) takes precedence
+  if (reservation.listing_mgmt_fee_pct != null && reservation.listing_mgmt_fee_pct !== '') {
+    return roundCurrency(netIncome * Number(reservation.listing_mgmt_fee_pct));
+  }
+
   const type = reservation.commission_type || 'au_management';
   const rate = Number(reservation.commission_rate || DEFAULT_MGMT_RATE);
 
+  // au_management: rate is already incGST after migration 004
+  // percentage_net: rate applied directly to net income
   if (type === 'au_management' || type === 'percentage_net') {
-    const base = roundCurrency(netIncome * rate);
-    const gst = roundCurrency(base * GST_RATE);
-    return { base, gst, total: roundCurrency(base + gst) };
+    return roundCurrency(netIncome * rate);
   }
   if (type === 'percentage_gross') {
-    const gross = Number(reservation.gross_amount || 0);
-    const base = roundCurrency(gross * rate);
-    const gst = roundCurrency(base * GST_RATE);
-    return { base, gst, total: roundCurrency(base + gst) };
+    return roundCurrency(Number(reservation.gross_amount || 0) * rate);
   }
   if (type === 'flat_fee') {
-    const base = Number(reservation.flat_amount || 0);
-    return { base, gst: 0, total: base };
+    return Number(reservation.flat_amount || 0);
   }
   if (type === 'tiered') {
     const parsed = typeof reservation.tiers === 'string' ? JSON.parse(reservation.tiers || '[]') : (reservation.tiers || []);
     const tier = [...parsed].sort((a, b) => Number(b.min || 0) - Number(a.min || 0)).find((item) => netIncome >= Number(item.min || 0));
-    const base = roundCurrency(netIncome * Number(tier?.rate || 0));
-    const gst = roundCurrency(base * GST_RATE);
-    return { base, gst, total: roundCurrency(base + gst) };
+    return roundCurrency(netIncome * Number(tier?.rate || 0));
   }
-  return { base: 0, gst: 0, total: 0 };
+  return 0;
 }
 
-async function insertLine(client, disbursementId, type, description, amount, sourceTable, sourceId, metadata) {
+async function insertLine(client, disbursementId, type, description, amount, sourceTable, sourceId, metadata, periodNights, totalNights, prorateShare) {
   await client.query(
-    `INSERT INTO disbursement_line_items (disbursement_id, type, description, amount, source_table, source_id, metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [disbursementId, type, description, roundCurrency(amount), sourceTable, sourceId, metadata]
+    `INSERT INTO disbursement_line_items (disbursement_id, type, description, amount, source_table, source_id, metadata, period_nights, total_nights, prorate_share)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [disbursementId, type, description, roundCurrency(amount), sourceTable, sourceId, metadata,
+     periodNights ?? null, totalNights ?? null, prorateShare ?? null]
   );
 }
 
@@ -235,15 +330,27 @@ export async function getDisbursementDetail(id) {
 }
 
 export async function generateDisbursementPdf(id) {
+  // Try new HTML-to-PDF pipeline first
+  try {
+    const html = await generateReportHtml(id);
+    const pdf = await renderHtmlToPdf(html);
+    if (pdf) return pdf;
+  } catch (err) {
+    console.warn('HTML-to-PDF failed, falling back to pdfkit:', err.message);
+  }
+
+  // Fallback: original pdfkit generation
+  return generateDisbursementPdfLegacy(id);
+}
+
+async function generateDisbursementPdfLegacy(id) {
   const { disbursement, lines } = await getDisbursementDetail(id);
 
-  // Group line items by reservation for cleaner display
   const grossLines = lines.filter(l => l.type === 'gross_booking');
   const channelLines = lines.filter(l => l.type === 'channel_commission');
   const cleaningLines = lines.filter(l => l.type === 'cleaning');
-  const mgmtLines = lines.filter(l => l.type === 'management_fee');
-  const gstLines = lines.filter(l => l.type === 'management_fee_gst');
-  const softwareLines = lines.filter(l => l.type === 'software_fee');
+  const discountLines = lines.filter(l => l.type === 'mgmt_discount');
+  const techFeeLines = lines.filter(l => l.type === 'tech_fee');
   const expenseLines = lines.filter(l => l.type === 'expense');
   const utilityLines = lines.filter(l => l.type === 'utility');
 
@@ -252,7 +359,6 @@ export async function generateDisbursementPdf(id) {
   doc.on('data', (chunk) => chunks.push(chunk));
   const done = new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
 
-  // Header
   doc.fontSize(20).fillColor('#14213d').text('LiveLuxe', { continued: true });
   doc.fontSize(10).fillColor('#c59b36').text('  Property Management');
   doc.moveDown(0.5);
@@ -265,11 +371,9 @@ export async function generateDisbursementPdf(id) {
   doc.text(`Statement Date: ${new Date().toLocaleDateString('en-AU')}`);
   doc.moveDown();
 
-  // Booking Income Section
   doc.fontSize(12).fillColor('#14213d').text('BOOKING INCOME');
   doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
   doc.moveDown(0.3);
-
   doc.fontSize(9).fillColor('#666');
   for (const line of grossLines) {
     doc.fillColor('#333').text(line.description, { continued: true });
@@ -279,7 +383,6 @@ export async function generateDisbursementPdf(id) {
   doc.fontSize(10).fillColor('#14213d').text(`Total Gross Bookings: ${formatMoney(disbursement.gross_channel_payout)}`);
   doc.moveDown(0.5);
 
-  // Channel Fees
   doc.fontSize(12).fillColor('#14213d').text('CHANNEL FEES');
   doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
   doc.moveDown(0.3);
@@ -291,66 +394,53 @@ export async function generateDisbursementPdf(id) {
   doc.text(`Channel Payout (received in trust): ${formatMoney(disbursement.net_channel_revenue)}`);
   doc.moveDown(0.5);
 
-  // Cleaning
+  doc.fontSize(12).fillColor('#14213d').text('MANAGEMENT FEE');
+  doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
+  doc.moveDown(0.3);
+  doc.fontSize(9).fillColor('#333');
+  doc.text(`Management Fee (incGST): ${formatMoney(-Number(disbursement.management_fee_base))}`);
+  if (Number(disbursement.mgmt_fee_discount) > 0) {
+    for (const line of discountLines) {
+      doc.fillColor('#16a34a').text(`${line.description}: +${formatMoney(line.amount)}`);
+    }
+    doc.fillColor('#333');
+  }
+  doc.fontSize(10).text(`Effective Management Fee: ${formatMoney(-Number(disbursement.management_commission))}`);
+  doc.moveDown(0.5);
+
   if (cleaningLines.length > 0) {
     doc.fontSize(12).fillColor('#14213d').text('CLEANING FEES');
     doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
     doc.moveDown(0.3);
     doc.fontSize(9).fillColor('#333');
-    for (const line of cleaningLines) {
-      doc.text(`${line.description}: ${formatMoney(line.amount)}`);
-    }
+    for (const line of cleaningLines) { doc.text(`${line.description}: ${formatMoney(line.amount)}`); }
     doc.moveDown(0.3);
   }
 
-  // Net Income
-  doc.fontSize(11).fillColor('#14213d');
-  doc.text(`NET INCOME: ${formatMoney(disbursement.net_income)}`);
-  doc.moveDown(0.5);
-
-  // Management Fee
-  doc.fontSize(12).fillColor('#14213d').text('MANAGEMENT FEE');
-  doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
-  doc.moveDown(0.3);
-  doc.fontSize(9).fillColor('#333');
-  doc.text(`Management Fee (18%): ${formatMoney(-Number(disbursement.management_fee_base))}`);
-  doc.text(`GST on Management Fee (10%): ${formatMoney(-Number(disbursement.management_fee_gst))}`);
-  doc.fontSize(10).text(`Total Management Fee: ${formatMoney(-Number(disbursement.management_commission))}`);
-  doc.moveDown(0.5);
-
-  // Software Fees
-  if (softwareLines.length > 0) {
-    doc.fontSize(12).fillColor('#14213d').text('MONTHLY CHARGES');
+  if (techFeeLines.length > 0) {
+    doc.fontSize(12).fillColor('#14213d').text('TECH FEE');
     doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
     doc.moveDown(0.3);
     doc.fontSize(9).fillColor('#333');
-    for (const line of softwareLines) {
-      doc.text(`${line.description}: ${formatMoney(line.amount)}`);
-    }
-    doc.moveDown(0.5);
+    for (const line of techFeeLines) { doc.text(`${line.description}: ${formatMoney(line.amount)}`); }
+    doc.moveDown(0.3);
   }
 
-  // Expenses
   if (expenseLines.length > 0 || utilityLines.length > 0) {
     doc.fontSize(12).fillColor('#14213d').text('EXPENSES');
     doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#c59b36').stroke();
     doc.moveDown(0.3);
     doc.fontSize(9).fillColor('#333');
-    for (const line of [...expenseLines, ...utilityLines]) {
-      doc.text(`${line.description}: ${formatMoney(line.amount)}`);
-    }
+    for (const line of [...expenseLines, ...utilityLines]) { doc.text(`${line.description}: ${formatMoney(line.amount)}`); }
     doc.moveDown(0.5);
   }
 
-  // Final Payout
   doc.moveDown(0.5);
   doc.moveTo(48, doc.y).lineTo(547, doc.y).strokeColor('#14213d').lineWidth(2).stroke();
   doc.moveDown(0.5);
   doc.fontSize(16).fillColor('#14213d');
   doc.text(`FINAL OWNER PAYOUT: ${formatMoney(disbursement.final_owner_payout)} AUD`, { align: 'center' });
   doc.moveDown(1);
-
-  // Footer
   doc.fontSize(8).fillColor('#999');
   doc.text('This statement is generated by LiveLuxe Property Management. All line items are linked to source records in the platform audit trail.', { align: 'center' });
 
@@ -377,11 +467,22 @@ export async function sendDisbursementEmail(id) {
   }
   try {
     const pdf = await generateDisbursementPdf(id);
+    const emailHtml = await generateEmailBodyHtml(id);
     const client = new postmark.ServerClient(process.env.POSTMARK_API_KEY);
+
+    // Determine property address for subject line
+    const listings = (await query(
+      `SELECT l.address, l.name FROM listings l WHERE l.owner_id = $1 ORDER BY l.name LIMIT 1`,
+      [disbursement.owner_id]
+    )).rows;
+    const propertyRef = listings[0]?.address || listings[0]?.name || '';
+    const subjectSuffix = propertyRef ? ` - ${propertyRef}` : '';
+
     const response = await client.sendEmail({
       From: process.env.POSTMARK_FROM_EMAIL,
       To: disbursement.email,
-      Subject: `LiveLuxe Disbursement Statement - ${disbursement.month}`,
+      Subject: `LiveLuxe ${monthLabelForEmail(disbursement.month)} Statement${subjectSuffix}`,
+      HtmlBody: emailHtml,
       TextBody: `Hi ${disbursement.owner_name},\n\nPlease find attached your disbursement statement for ${disbursement.month}.\n\nFinal Payout: $${Number(disbursement.final_owner_payout).toFixed(2)} AUD\n\nIf you have any questions, please contact us at contact@liveluxeau.com.\n\nBest regards,\nLiveLuxe Property Management`,
       Attachments: [{ Name: `LiveLuxe-Disbursement-${disbursement.month}.pdf`, Content: pdf.toString('base64'), ContentType: 'application/pdf' }]
     });
@@ -406,6 +507,12 @@ export async function bulkSend(month) {
   const results = [];
   for (const row of rows) results.push(await sendDisbursementEmail(row.id));
   return results;
+}
+
+function monthLabelForEmail(month) {
+  const [y, m] = month.split('-');
+  const date = new Date(Number(y), Number(m) - 1, 1);
+  return date.toLocaleString('en-AU', { month: 'long', year: 'numeric' });
 }
 
 export function channelLabel(platform) {

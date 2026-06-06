@@ -10,6 +10,7 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -23,7 +24,7 @@
     "pdfkit": "^0.16.0",
     "pg": "^8.13.1",
     "postmark": "^4.0.5",
+    "puppeteer-core": "^25.1.0",
     "xlsx": "^0.18.5"
-  },
-  "devDependencies": {}
+  }
 }
