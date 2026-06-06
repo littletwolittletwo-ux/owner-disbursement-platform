@@ -29,6 +29,27 @@ function createClient(token) {
   });
 }
 
+const PM_TAG = 'Property Management Deals';
+
+/**
+ * Fetch all Hostaway listings and return a Set of listingMapIds
+ * that have the "Property Management Deals" tag.
+ */
+async function fetchPMListingIds(client) {
+  const res = await client.get('/listings', { params: { limit: 200 } });
+  const listings = res.data?.result || [];
+  const pmIds = new Set();
+  const pmListings = [];
+  for (const l of listings) {
+    const tags = l.listingTags || [];
+    if (tags.some(t => t.name === PM_TAG)) {
+      pmIds.add(String(l.id));
+      pmListings.push(l);
+    }
+  }
+  return { pmIds, pmListings, totalListings: listings.length };
+}
+
 /**
  * Filter out non-booking entries (blocks, cancelled, declined, iCal blocks).
  */
@@ -80,20 +101,25 @@ function mapReservation(item) {
 }
 
 /**
- * Auto-create listings from Hostaway data if they don't exist in the DB.
- * This ensures listing_id is set on reservations for Property/Owner display.
+ * Auto-create listings from Hostaway PM listing data if they don't exist in the DB.
+ * Uses internalListingName (unit/address) for better identification.
  */
-async function ensureListingsExist(reservations) {
-  const listingMapIds = [...new Set(reservations.map(r => String(r.listingMapId)).filter(Boolean))];
-  for (const hwId of listingMapIds) {
+async function ensureListingsExist(pmListings) {
+  for (const l of pmListings) {
+    const hwId = String(l.id);
     const existing = await query(
       `SELECT id FROM listings WHERE hostaway_listing_id = $1 LIMIT 1`,
       [hwId]
     );
     if (existing.rows.length === 0) {
-      // Find the listingName from one of the reservations
-      const sample = reservations.find(r => String(r.listingMapId) === hwId);
-      const name = (sample?.listingName || `Hostaway ${hwId}`).replace(/^\[ACTIVE\]\s*/i, '').trim();
+      // Use internalListingName (e.g., "[ACTIVE] 6/90 Kavanagh Street") — clean up prefix
+      const name = (l.internalListingName || l.name || `Hostaway ${hwId}`)
+        .replace(/^\[ACTIVE\]\s*/i, '')
+        .replace(/^\[DISCARDED\]\s*/i, '')
+        .replace(/^NEW\s*-\s*/i, '')
+        .replace(/^\[ACTIVE\]\s*/i, '')
+        .replace(/\s*-\s*[A-Z\s&]+$/i, '') // Remove trailing owner name like " - UROS"
+        .trim();
       await query(
         `INSERT INTO listings (name, hostaway_listing_id, platform_fee_rates)
          VALUES ($1, $2, '{"airbnb":0.165,"booking.com":0.165,"vrbo":0.12,"direct":0}')
@@ -137,9 +163,9 @@ export async function syncHostaway(months = 3) {
   const token = await getAccessToken();
   const client = createClient(token);
 
-  // Fetch listings
-  const listingRes = await client.get('/listings', { params: { limit: 200 } });
-  const listings = listingRes.data?.result || [];
+  // Fetch PM-tagged listings only
+  const { pmIds, pmListings, totalListings } = await fetchPMListingIds(client);
+  await ensureListingsExist(pmListings);
 
   // Only fetch reservations from the last N months
   const startDate = new Date();
@@ -147,11 +173,19 @@ export async function syncHostaway(months = 3) {
   const arrivalStartDate = startDate.toISOString().slice(0, 10);
 
   const allReservations = await fetchReservations(client, { arrivalStartDate });
-  const realBookings = allReservations.filter(isRealBooking);
-  await ensureListingsExist(realBookings);
+  // Filter: real bookings + PM-tagged listings only
+  const realBookings = allReservations.filter(r =>
+    isRealBooking(r) && pmIds.has(String(r.listingMapId))
+  );
   const reservations = realBookings.map(mapReservation);
   const inserted = await insertReservations(reservations, 'hostaway');
-  return { skipped: false, listings: listings.length, reservations: inserted.length, filtered: allReservations.length - realBookings.length };
+  return {
+    skipped: false,
+    pmListings: pmIds.size,
+    totalListings,
+    reservations: inserted.length,
+    filtered: allReservations.length - realBookings.length
+  };
 }
 
 /**
@@ -170,11 +204,11 @@ export async function syncHostawayDateRange(startDate, endDate, hostawayListingI
   const token = await getAccessToken();
   const client = createClient(token);
 
-  // Fetch with a wider window to catch straddlers:
-  // Any booking that overlaps [startDate, endDate]:
-  //   check_in < endDate AND check_out > startDate
-  // Hostaway arrivalStartDate filter: bookings arriving from (startDate - 60 days)
-  // to catch bookings that started before but overlap
+  // Fetch PM-tagged listings only
+  const { pmIds, pmListings } = await fetchPMListingIds(client);
+  await ensureListingsExist(pmListings);
+
+  // Fetch with a wider window to catch straddlers
   const bufferStart = new Date(startDate);
   bufferStart.setDate(bufferStart.getDate() - 60);
 
@@ -188,21 +222,17 @@ export async function syncHostawayDateRange(startDate, endDate, hostawayListingI
 
   const allReservations = await fetchReservations(client, params);
 
-  // Filter to only real bookings overlapping [startDate, endDate]
+  // Filter: real bookings + PM-tagged + overlapping [startDate, endDate]
   const overlapping = allReservations.filter(r => {
     if (!isRealBooking(r)) return false;
-    const checkIn = r.arrivalDate;
-    const checkOut = r.departureDate;
-    return checkIn < endDate && checkOut > startDate;
+    if (!pmIds.has(String(r.listingMapId))) return false;
+    return r.arrivalDate < endDate && r.departureDate > startDate;
   });
 
   // Count straddlers (check-in before startDate OR check-out after endDate)
   const straddlers = overlapping.filter(r => {
     return r.arrivalDate < startDate || r.departureDate > endDate;
   });
-
-  // Auto-create listings if needed
-  await ensureListingsExist(overlapping);
 
   // Insert into DB
   const mapped = overlapping.map(mapReservation);
@@ -309,6 +339,56 @@ export async function getStraddlingBookings(month) {
   );
 
   return result.rows;
+}
+
+/**
+ * Remove all non-PM listings, their reservations, expenses, cleaning records,
+ * utility records, and disbursement data from the DB.
+ * Fetches PM listing IDs from Hostaway, then deletes everything else.
+ */
+export async function cleanupNonPMListings() {
+  const token = await getAccessToken();
+  const client = createClient(token);
+  const { pmIds } = await fetchPMListingIds(client);
+
+  // Get all listings in DB
+  const allListings = await query(`SELECT id, hostaway_listing_id, name FROM listings`);
+
+  const toDelete = allListings.rows.filter(l =>
+    !l.hostaway_listing_id || !pmIds.has(String(l.hostaway_listing_id))
+  );
+
+  if (toDelete.length === 0) {
+    return { deleted: 0, kept: allListings.rows.length, message: 'No non-PM listings found' };
+  }
+
+  const deleteIds = toDelete.map(l => l.id);
+
+  // Delete reservations for these listings
+  const reservationsResult = await query(
+    `DELETE FROM reservations WHERE listing_id = ANY($1::uuid[])`,
+    [deleteIds]
+  );
+
+  // Delete expenses
+  await query(`DELETE FROM owner_expenses WHERE listing_id = ANY($1::uuid[])`, [deleteIds]);
+  // Delete cleaning records
+  await query(`DELETE FROM cleaning_records WHERE listing_id = ANY($1::uuid[])`, [deleteIds]);
+  // Delete utility records
+  await query(`DELETE FROM utility_records WHERE listing_id = ANY($1::uuid[])`, [deleteIds]);
+
+  // Delete the listings themselves
+  const listingsResult = await query(
+    `DELETE FROM listings WHERE id = ANY($1::uuid[])`,
+    [deleteIds]
+  );
+
+  return {
+    deleted: listingsResult.rowCount,
+    deletedReservations: reservationsResult.rowCount,
+    kept: allListings.rows.length - toDelete.length,
+    deletedNames: toDelete.map(l => l.name).slice(0, 20),
+  };
 }
 
 /**

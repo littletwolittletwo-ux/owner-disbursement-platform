@@ -18,7 +18,7 @@ import { calculatePayout } from './services/payoutEngine.js';
 import { calculateOwnerDisbursement, generateDisbursementPdf, bulkSend } from './services/disbursementEngine.js';
 import { generateReportHtml, generateEmailBodyHtml } from './services/reportGenerator.js';
 import { renderHtmlToPdf } from './services/pdfRenderer.js';
-import { syncHostaway, syncHostawayDateRange, syncHostawayMonth, queryReservations, getStraddlingBookings, reservationsToCSV } from './services/hostaway.js';
+import { syncHostaway, syncHostawayDateRange, syncHostawayMonth, queryReservations, getStraddlingBookings, reservationsToCSV, cleanupNonPMListings } from './services/hostaway.js';
 import { generateMonthlyAba } from './services/abaGenerator.js';
 import { createExpense, getExpenses, getExpense, deleteExpense, importExpenseCsv, uploadReceipt } from './services/expenseService.js';
 
@@ -484,6 +484,14 @@ router.post('/hostaway/sync-range', async (req, res, next) => {
 router.post('/hostaway/sync-month/:month', async (req, res, next) => {
   try {
     res.json(await syncHostawayMonth(req.params.month));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/hostaway/cleanup-non-pm', async (_req, res, next) => {
+  try {
+    res.json(await cleanupNonPMListings());
   } catch (error) {
     next(error);
   }
