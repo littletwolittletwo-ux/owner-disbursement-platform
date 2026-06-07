@@ -87,12 +87,40 @@ export function processorForPlatform(platform) {
   return 'Unknown';
 }
 
+/**
+ * Infer booking channel from a trust transaction description.
+ * Returns { channel, processor } if this looks like a booking payout,
+ * or { channel: null, processor: null } if it doesn't match any known pattern.
+ *
+ * Known payout patterns:
+ * - Airbnb: "Airbnb", "Payoneer", "Pionear" in description
+ * - Booking.com: "Booking.com", "Booking Com", "Booking" in description
+ * - VRBO: "VRBO", "HomeAway" in description
+ * - Stripe (VRBO/Direct): "Stripe" in description
+ */
 export function inferChannel(description = '') {
-  const value = description.toLowerCase();
-  if (value.includes('airbnb') || value.includes('pionear')) return { channel: 'airbnb', processor: 'Pionear / Airbnb Payments' };
-  if (value.includes('booking.com') || value.includes('booking com') || value.includes('booking')) return { channel: 'booking.com', processor: 'Booking.com' };
-  if (value.includes('vrbo')) return { channel: 'vrbo', processor: 'Stripe' };
-  if (value.includes('stripe') || value.includes('direct')) return { channel: 'direct', processor: 'Stripe' };
+  const val = description.toLowerCase();
+  // Airbnb payouts come via Payoneer or directly labelled Airbnb
+  if (val.includes('airbnb') || val.includes('payoneer') || val.includes('pionear')) {
+    return { channel: 'airbnb', processor: 'Payoneer / Airbnb Payments' };
+  }
+  // Booking.com payouts
+  if (val.includes('booking.com') || val.includes('booking com') || val.includes('bookingcom')) {
+    return { channel: 'booking.com', processor: 'Booking.com' };
+  }
+  // "booking" alone — but exclude generic words like "rebooking", "overbooking"
+  if (/\bbooking\b/.test(val) && !val.includes('rebooking') && !val.includes('overbooking')) {
+    return { channel: 'booking.com', processor: 'Booking.com' };
+  }
+  // VRBO / HomeAway payouts
+  if (val.includes('vrbo') || val.includes('homeaway')) {
+    return { channel: 'vrbo', processor: 'Stripe' };
+  }
+  // Stripe is often VRBO or direct bookings
+  if (val.includes('stripe')) {
+    return { channel: 'vrbo', processor: 'Stripe' };
+  }
+  // Not a recognisable booking payout
   return { channel: null, processor: null };
 }
 

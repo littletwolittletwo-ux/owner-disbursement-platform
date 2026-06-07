@@ -1,13 +1,13 @@
 import PDFDocument from 'pdfkit';
-import postmark from 'postmark';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, withTransaction } from '../db.js';
 import { startEndForMonth } from '../utils/dates.js';
-import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate, countPeriodNights } from './payoutEngine.js';
+import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate } from './payoutEngine.js';
 import { generateReportHtml, generateEmailBodyHtml } from './reportGenerator.js';
 import { renderHtmlToPdf } from './pdfRenderer.js';
+import { createGmailDraft, sendGmailDraft, deleteGmailDraft } from './gmailService.js';
 
 // Management fee rates (Australian STR) — all rates are incGST
 const DEFAULT_MGMT_RATE = 0.198; // 19.8% incGST (= 18% + 10% GST)
@@ -32,9 +32,12 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Get reservations for THIS month only (segregated):
-    //   1. Checkout within this month, OR
-    //   2. Straddler: checkout in prior month but expected payout date falls in this month
+    // Get reservations whose PAYOUT falls in this month (disbursement_month).
+    // This is the month the money arrives in the trust account, determined by platform payout rules:
+    //   Airbnb: 1 biz day after check-in
+    //   Booking.com: following Friday after checkout
+    //   VRBO: day after checkout
+    // Full amounts — no pro-rating. The payout arrives as a lump sum in one month.
     const reservations = (await client.query(
       `SELECT r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
@@ -42,23 +45,15 @@ export async function calculateOwnerDisbursement(ownerId, month) {
               l.cleaning_fee_baseline,
               COALESCE(l.mgmt_fee_waiver_pct, 0) as listing_waiver_pct,
               COALESCE(l.mgmt_fee_boost, 0) as listing_boost,
-              cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers,
-              CASE WHEN m.id IS NOT NULL AND t.transaction_date BETWEEN $2 AND $3
-                   THEN true ELSE false END as is_payout_received,
-              CASE WHEN r.check_out < $2 THEN true ELSE false END as is_straddler
+              cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers
        FROM reservations r
        JOIN listings l ON l.id = r.listing_id
        LEFT JOIN commission_rules cr ON cr.owner_id = l.owner_id
          AND (cr.listing_id = l.id OR cr.listing_id IS NULL)
          AND (cr.platform = r.platform OR cr.platform = 'all')
-       LEFT JOIN transaction_reservation_matches m ON m.reservation_id = r.id
-       LEFT JOIN trust_transactions t ON t.id = m.trust_transaction_id
        WHERE l.owner_id = $1
-         AND (
-           (r.check_out >= $2 AND r.check_out <= $3)
-           OR (r.check_out < $2 AND r.expected_payout_date >= $2 AND r.expected_payout_date <= $3)
-         )`,
-      [ownerId, start, end]
+         AND r.disbursement_month = $2`,
+      [ownerId, month]
     )).rows;
 
     // Get expenses for the month
@@ -72,7 +67,8 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       [ownerId, start, end]
     )).rows;
 
-    // Calculate per-reservation with pro-rating (spec §4)
+    // Calculate per-reservation — full amounts, no pro-rating.
+    // Each booking is assigned to the month its payout arrives (disbursement_month).
     let totalGross = 0;
     let totalChannelCommission = 0;
     let totalChannelPayout = 0;
@@ -82,23 +78,15 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     let totalMgmtDiscount = 0;
     let totalMgmtEffective = 0;
     const listingsWithBookings = new Set();
-    const listingDiscountApplied = new Set(); // track boost per-listing (once per month)
 
     const reservationDetails = reservations.map(r => {
-      // Pro-rate straddling bookings (spec §4)
-      const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
-      const share = totalNights === 0 ? 0 : periodNights / totalNights;
+      const gross = roundCurrency(Number(r.gross_amount));
 
-      const fullGross = Number(r.gross_amount);
-      const gross = roundCurrency(fullGross * share);
+      // Cleaning fee resolution: reservation → listing default fallback
+      const cleaningFee = roundCurrency(resolveCleaningFee(r));
 
-      // Cleaning fee resolution (spec §6): reservation → listing default fallback
-      const rawCleaning = resolveCleaningFee(r);
-      const cleaningFee = roundCurrency(rawCleaning * share);
-
-      // Platform fee: pro-rated
-      const fullPlatformFee = Number(r.platform_fee);
-      const platformFee = roundCurrency(fullPlatformFee * share);
+      // Platform fee: full amount
+      const platformFee = roundCurrency(Number(r.platform_fee));
       const channelPayout = roundCurrency(gross - platformFee);
 
       // Management fee calculated on channel payout (incGST rate, BEFORE cleaning)
@@ -107,32 +95,31 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       // Net to owner = channel payout - management - cleaning
       const netToOwner = roundCurrency(channelPayout - mgmtFee - cleaningFee);
 
-      // Payout timing check (spec §3.2)
       const expectedPayoutDate = calculateExpectedPayoutDate(r);
-      const isPaid = r.is_payout_received || (expectedPayoutDate && expectedPayoutDate <= end);
+      const totalNights = Math.max(0, Math.round(
+        (new Date(r.check_out) - new Date(r.check_in)) / 86400000
+      ));
 
-      // Only accumulate totals for PAID reservations (spec §3.2)
-      if (isPaid) {
-        totalGross += gross;
-        totalChannelCommission += platformFee;
-        totalChannelPayout += channelPayout;
-        totalCleaning += cleaningFee;
-        totalNetIncome += channelPayout;
-        totalMgmtFeeFull += mgmtFee;
-        listingsWithBookings.add(r.lid);
-      }
+      // All reservations in this query are paid (payout month = this month)
+      totalGross += gross;
+      totalChannelCommission += platformFee;
+      totalChannelPayout += channelPayout;
+      totalCleaning += cleaningFee;
+      totalNetIncome += channelPayout;
+      totalMgmtFeeFull += mgmtFee;
+      listingsWithBookings.add(r.lid);
 
       return {
         ...r,
-        calc_period_nights: periodNights,
+        calc_period_nights: totalNights,
         calc_total_nights: totalNights,
-        calc_prorate_share: share,
+        calc_prorate_share: 1,
         calc_channel_payout: channelPayout,
         calc_cleaning: cleaningFee,
         calc_net_income: channelPayout,
         calc_mgmt_fee: mgmtFee,
         calc_net_to_owner: netToOwner,
-        calc_is_paid: isPaid,
+        calc_is_paid: true,
         calc_expected_payout_date: expectedPayoutDate,
         calc_period_gross: gross,
         calc_platform_fee: platformFee,
@@ -464,8 +451,8 @@ function formatMoney(value) {
 }
 
 /**
- * Create a draft email for a disbursement — stores HTML body, subject, and attachment names
- * but does NOT send. Allows review before sending.
+ * Create a draft email for a disbursement — creates a Gmail draft with PDF attachments
+ * and records it in email_log for tracking.
  */
 export async function createDraftEmail(id) {
   const { disbursement } = await getDisbursementDetail(id);
@@ -487,27 +474,57 @@ export async function createDraftEmail(id) {
     'LiveLuxe-Owner-Disbursement-Guide.pdf'
   ];
 
-  // Upsert: if a draft already exists for this disbursement, update it
+  const recipient = disbursement.email || 'missing-recipient';
+
+  // Generate statement PDF + guide PDF for Gmail attachment
+  const statementPdf = await generateDisbursementPdf(id);
+  const guideAttachments = getGuideAttachment();
+
+  const gmailAttachments = [
+    { filename: attachmentNames[0], content: statementPdf.toString('base64'), contentType: 'application/pdf' },
+  ];
+  if (guideAttachments.length > 0) {
+    gmailAttachments.push({
+      filename: 'LiveLuxe-Owner-Disbursement-Guide.pdf',
+      content: guideAttachments[0].Content,
+      contentType: 'application/pdf',
+    });
+  }
+
+  // Delete existing Gmail draft if we have one for this disbursement
   const existing = await query(
-    `SELECT id FROM email_log WHERE disbursement_id = $1 AND status = 'draft' LIMIT 1`,
+    `SELECT id, provider_message_id FROM email_log WHERE disbursement_id = $1 AND status = 'draft' LIMIT 1`,
     [id]
   );
+  if (existing.rows.length > 0 && existing.rows[0].provider_message_id) {
+    try { await deleteGmailDraft(existing.rows[0].provider_message_id); } catch (_) {}
+  }
 
+  // Create Gmail draft
+  const gmailDraft = await createGmailDraft({
+    to: recipient,
+    subject,
+    htmlBody: emailHtml,
+    textBody,
+    attachments: gmailAttachments,
+  });
+
+  // Upsert email_log record
   let result;
   if (existing.rows.length > 0) {
     result = await query(
       `UPDATE email_log SET subject = $1, html_body = $2, text_body = $3, attachment_names = $4,
-       recipient = $5, sent_at = now()
-       WHERE id = $6 RETURNING *`,
+       recipient = $5, provider_message_id = $6, sent_at = now()
+       WHERE id = $7 RETURNING *`,
       [subject, emailHtml, textBody, JSON.stringify(attachmentNames),
-       disbursement.email || 'missing-recipient', existing.rows[0].id]
+       recipient, gmailDraft.id, existing.rows[0].id]
     );
   } else {
     result = await query(
-      `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, subject, html_body, text_body, attachment_names)
-       VALUES ($1,$2,$3,$4,'draft',$5,$6,$7,$8) RETURNING *`,
-      [disbursement.owner_id, id, disbursement.email || 'missing-recipient', disbursement.month,
-       subject, emailHtml, textBody, JSON.stringify(attachmentNames)]
+      `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, subject, html_body, text_body, attachment_names, provider_message_id)
+       VALUES ($1,$2,$3,$4,'draft',$5,$6,$7,$8,$9) RETURNING *`,
+      [disbursement.owner_id, id, recipient, disbursement.month,
+       subject, emailHtml, textBody, JSON.stringify(attachmentNames), gmailDraft.id]
     );
   }
   return result.rows[0];
@@ -525,41 +542,27 @@ export async function bulkCreateDrafts(month) {
 
 /**
  * Send a specific draft email by email_log ID.
- * Generates the PDF at send time (fresh), attaches guide, and sends via Postmark.
+ * Sends the Gmail draft that was created during createDraftEmail.
  */
 export async function sendDraftEmail(emailLogId) {
   const draft = (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
   if (!draft) throw new Error('Draft not found');
   if (draft.status === 'sent') throw new Error('Email already sent');
 
-  if (!process.env.POSTMARK_API_KEY || !process.env.POSTMARK_FROM_EMAIL) {
+  if (!draft.provider_message_id) {
     await query(
-      `UPDATE email_log SET status = 'skipped', error = 'POSTMARK_API_KEY or POSTMARK_FROM_EMAIL not configured' WHERE id = $1`,
+      `UPDATE email_log SET status = 'error', error = 'No Gmail draft ID — recreate the draft first' WHERE id = $1`,
       [emailLogId]
     );
     return (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
   }
 
   try {
-    // Generate fresh PDF for the disbursement
-    const pdf = await generateDisbursementPdf(draft.disbursement_id);
-    const client = new postmark.ServerClient(process.env.POSTMARK_API_KEY);
-
-    const response = await client.sendEmail({
-      From: process.env.POSTMARK_FROM_EMAIL,
-      To: draft.recipient,
-      Subject: draft.subject,
-      HtmlBody: draft.html_body,
-      TextBody: draft.text_body,
-      Attachments: [
-        { Name: `LiveLuxe-Disbursement-${draft.statement_month}.pdf`, Content: pdf.toString('base64'), ContentType: 'application/pdf' },
-        ...getGuideAttachment()
-      ]
-    });
+    const result = await sendGmailDraft(draft.provider_message_id);
 
     await query(
       `UPDATE email_log SET status = 'sent', provider_message_id = $1, sent_at = now(), error = NULL WHERE id = $2`,
-      [response.MessageID, emailLogId]
+      [result.messageId, emailLogId]
     );
     return (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
   } catch (error) {

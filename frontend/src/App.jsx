@@ -152,6 +152,7 @@ function App() {
   const [showTrustConfig, setShowTrustConfig] = useState(false);
   const [trustConfig, setTrustConfig] = useState({ bsb: '', account_number: '', account_name: 'LiveLuxe Trust Account', bank_name: 'NAB', financial_institution_code: 'NAB', apca_user_id: '000000' });
   const [sidebarSection, setSidebarSection] = useState('registry');
+  const gmailStatus = useApi('/api/gmail/status', { connected: false });
 
   const ownerOptions = owners.data || [];
 
@@ -220,7 +221,11 @@ function App() {
     try {
       const response = await fetch(`${API}/api/uploads/${type}`, { method: 'POST', body: form });
       const json = await response.json();
-      flash(`${type} upload: processed ${json.rows || 0} rows`, 'success');
+      if (type === 'trust' && json.imported !== undefined) {
+        flash(`Trust upload: imported ${json.imported} booking payouts, skipped ${json.skipped} non-booking entries (${json.rows} total rows)`, 'success');
+      } else {
+        flash(`${type} upload: processed ${json.rows || 0} rows`, 'success');
+      }
       dashboard.reload();
     } catch (e) { flash(e.message, 'error'); }
   }
@@ -404,7 +409,7 @@ function App() {
         downloadAba={downloadAba} openManualMatch={openManualMatch} previewPdf={previewPdf}
         viewReport={viewReport} downloadReportPdf={downloadReportPdf} previewEmail={previewEmail}
         loadTrustConfig={loadTrustConfig} flash={flash}
-        emailLog={emailLog}
+        emailLog={emailLog} gmailStatus={gmailStatus}
         sidebarSection={sidebarSection} setSidebarSection={setSidebarSection}
       />}
 
@@ -482,7 +487,7 @@ function App() {
 
 // ── Dashboard View ──
 
-function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, createDrafts, sendAllDrafts, sendSingleDraft, deleteDraft, downloadAba, openManualMatch, previewPdf, viewReport, downloadReportPdf, previewEmail, loadTrustConfig, flash, emailLog, sidebarSection, setSidebarSection }) {
+function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, createDrafts, sendAllDrafts, sendSingleDraft, deleteDraft, downloadAba, openManualMatch, previewPdf, viewReport, downloadReportPdf, previewEmail, loadTrustConfig, flash, emailLog, gmailStatus, sidebarSection, setSidebarSection }) {
   const drafts = (emailLog.data || []).filter(e => e.status === 'draft');
   const sent = (emailLog.data || []).filter(e => e.status === 'sent');
 
@@ -518,8 +523,13 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, cre
 
           <SidebarToggle label="Quick Actions" section="actions" current={sidebarSection} onToggle={setSidebarSection}>
             <div className="space-y-2">
+              {/* Gmail connection status */}
+              <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${gmailStatus.data?.connected ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-600'}`}>
+                <span className={`inline-block h-2 w-2 rounded-full ${gmailStatus.data?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                {gmailStatus.data?.connected ? `Gmail: ${gmailStatus.data.email}` : 'Gmail: Not connected'}
+              </div>
               <button className="w-full rounded bg-gold px-4 py-2 text-sm font-semibold text-ink hover:bg-gold/90 transition-colors" onClick={createDrafts}>
-                <Mail className="mr-2 inline h-4 w-4" />Create Email Drafts
+                <Mail className="mr-2 inline h-4 w-4" />Create Gmail Drafts
               </button>
               {drafts.length > 0 && (
                 <button className="w-full rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 transition-colors" onClick={sendAllDrafts}>

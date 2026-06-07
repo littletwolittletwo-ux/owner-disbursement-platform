@@ -16,6 +16,7 @@ import {
 } from './services/reconciliation.js';
 import { calculatePayout } from './services/payoutEngine.js';
 import { calculateOwnerDisbursement, generateDisbursementPdf, bulkSend, bulkCreateDrafts, sendDraftEmail, bulkSendDrafts } from './services/disbursementEngine.js';
+import { getGmailStatus, deleteGmailDraft } from './services/gmailService.js';
 import { generateReportHtml, generateEmailBodyHtml } from './services/reportGenerator.js';
 import { renderHtmlToPdf } from './services/pdfRenderer.js';
 import { syncHostaway, syncHostawayDateRange, syncHostawayMonth, queryReservations, getStraddlingBookings, reservationsToCSV, cleanupNonPMListings } from './services/hostaway.js';
@@ -210,13 +211,29 @@ router.post('/payout/calculate', (req, res) => res.json(calculatePayout(req.body
 router.post('/uploads/:type', upload.single('file'), async (req, res, next) => {
   try {
     const rows = await parseUploadedFile(req.file.path, req.file.originalname);
-    let inserted;
-    if (req.params.type === 'trust') inserted = await insertTrustTransactions(rows, req.file.originalname);
-    else if (req.params.type === 'reservations') inserted = await insertReservations(rows, req.file.originalname);
-    else if (req.params.type === 'expenses') inserted = await insertExpenses(rows, req.file.originalname);
-    else if (req.params.type === 'cleaning-utilities') inserted = await insertCleaningUtilities(rows, req.file.originalname);
-    else return res.status(400).json({ error: 'Unknown upload type' });
-    res.json({ rows: rows.length, inserted });
+    let result;
+    if (req.params.type === 'trust') {
+      const trustResult = await insertTrustTransactions(rows, req.file.originalname);
+      result = {
+        rows: rows.length,
+        imported: trustResult.importedCount,
+        skipped: trustResult.skippedCount,
+        skippedDetails: trustResult.skipped.slice(0, 20),
+        inserted: trustResult.inserted
+      };
+    } else if (req.params.type === 'reservations') {
+      const inserted = await insertReservations(rows, req.file.originalname);
+      result = { rows: rows.length, inserted };
+    } else if (req.params.type === 'expenses') {
+      const inserted = await insertExpenses(rows, req.file.originalname);
+      result = { rows: rows.length, inserted };
+    } else if (req.params.type === 'cleaning-utilities') {
+      const inserted = await insertCleaningUtilities(rows, req.file.originalname);
+      result = { rows: rows.length, inserted };
+    } else {
+      return res.status(400).json({ error: 'Unknown upload type' });
+    }
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -360,14 +377,25 @@ router.get('/email-log', async (req, res) => {
   res.json(rows.rows);
 });
 
-// Delete a draft
+// Delete a draft (also deletes from Gmail)
 router.delete('/email-log/:id', async (req, res, next) => {
   try {
-    const draft = (await query(`SELECT status FROM email_log WHERE id = $1`, [req.params.id])).rows[0];
+    const draft = (await query(`SELECT status, provider_message_id FROM email_log WHERE id = $1`, [req.params.id])).rows[0];
     if (!draft) return res.status(404).json({ error: 'Not found' });
     if (draft.status === 'sent') return res.status(400).json({ error: 'Cannot delete sent emails' });
+    // Delete from Gmail if we have a draft ID
+    if (draft.provider_message_id) {
+      try { await deleteGmailDraft(draft.provider_message_id); } catch (_) {}
+    }
     await query(`DELETE FROM email_log WHERE id = $1`, [req.params.id]);
     res.json({ deleted: true });
+  } catch (error) { next(error); }
+});
+
+// ── Gmail Status ──
+router.get('/gmail/status', async (_req, res, next) => {
+  try {
+    res.json(await getGmailStatus());
   } catch (error) { next(error); }
 });
 

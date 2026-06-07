@@ -1,6 +1,6 @@
 import { query } from '../db.js';
 import { getDisbursementDetail, channelLabel } from './disbursementEngine.js';
-import { normalizePlatform, countPeriodNights } from './payoutEngine.js';
+import { normalizePlatform } from './payoutEngine.js';
 import { startEndForMonth } from '../utils/dates.js';
 
 // ── Colors ──
@@ -31,55 +31,45 @@ function shortDate(dateStr) {
 
 /**
  * Get reservations detail for a disbursement (for the reservation table).
+ * Uses disbursement_month — full amounts, no pro-rating.
  */
 async function getReservationDetails(disbursementId) {
   const { disbursement } = await getDisbursementDetail(disbursementId);
-  const { start, end } = startEndForMonth(disbursement.month);
 
-  // Month-segregated: checkout in this month OR straddler (checkout prior but payout in this month)
   const reservations = (await query(
-    `SELECT r.*, l.name listing_name, l.address,
-            CASE WHEN r.check_out < $2 THEN true ELSE false END as is_straddler
+    `SELECT r.*, l.name listing_name, l.address
      FROM reservations r
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
-       AND (
-         (r.check_out >= $2 AND r.check_out <= $3)
-         OR (r.check_out < $2 AND r.expected_payout_date >= $2 AND r.expected_payout_date <= $3)
-       )
+       AND r.disbursement_month = $2
      ORDER BY r.check_in`,
-    [disbursement.owner_id, start, end]
+    [disbursement.owner_id, disbursement.month]
   )).rows;
 
   return reservations.map(r => {
-    const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
-    const share = totalNights === 0 ? 0 : periodNights / totalNights;
-    return { ...r, periodNights, totalNights, share, periodGross: Number(r.gross_amount) * share };
+    const totalNights = Math.max(0, Math.round(
+      (new Date(r.check_out) - new Date(r.check_in)) / 86400000
+    ));
+    return { ...r, periodNights: totalNights, totalNights, share: 1, periodGross: Number(r.gross_amount) };
   });
 }
 
 /**
- * Get bookings excluded/deferred (checkout after period end — rolling to next month).
+ * Get bookings deferred to next month — check-in during/before this month
+ * but disbursement_month is a future month (payout hasn't arrived yet).
  */
 async function getExcludedBookings(ownerId, month) {
-  const { start, end } = startEndForMonth(month);
-  // Next month boundaries
-  const [y, m] = month.split('-').map(Number);
-  const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
-  const nextEnd = startEndForMonth(nextMonth).end;
+  const { end } = startEndForMonth(month);
 
-  // Deferred bookings: check-in during or before this month, but checkout after this month
-  // AND payout date also after this month (so they'll roll into next month's disbursement)
   const rows = (await query(
     `SELECT r.*, l.name listing_name, l.address
      FROM reservations r
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
        AND r.check_in <= $2
-       AND (r.check_out > $2 OR r.expected_payout_date > $2)
-       AND r.check_out <= $3
+       AND r.disbursement_month > $3
      ORDER BY r.check_in`,
-    [ownerId, end, nextEnd]
+    [ownerId, end, month]
   )).rows;
 
   return rows;
@@ -118,7 +108,7 @@ export async function generateReportHtml(disbursementId) {
   const expenseLines = lines.filter(l => l.type === 'expense');
   const utilityLines = lines.filter(l => l.type === 'utility');
 
-  const paidReservations = reservations.filter(r => r.share > 0);
+  const paidReservations = reservations;
   const totalGross = Number(disbursement.gross_channel_payout);
   const platformFees = Number(disbursement.platform_fees);
   const channelPayout = Number(disbursement.net_channel_revenue);
@@ -335,7 +325,7 @@ ${paidReservations.map(r => `        <tr>
           <td>${r.guest_name || 'Guest'}</td>
           <td>${shortDate(r.check_in)}</td>
           <td>${shortDate(r.check_out)}</td>
-          <td>${r.periodNights}${r.share < 1 ? `/${r.totalNights}` : ''}</td>
+          <td>${r.periodNights}</td>
           <td>${channelLabel(r.platform)}</td>
           <td class="amount">${formatMoney(r.periodGross)}</td>
         </tr>`).join('\n')}
@@ -386,7 +376,7 @@ ${mgmtDiscount > 0 ? `
       <h4>How Your Disbursement Is Calculated</h4>
       <p>Each monthly statement follows a transparent 5-step methodology:</p>
       <ol class="steps" style="margin-top:10px;">
-        <li><strong>Booking Revenue:</strong> We total all completed guest bookings where checkout falls within the statement period.</li>
+        <li><strong>Booking Revenue:</strong> We total all completed guest bookings where the platform payout was received during the statement period.</li>
         <li><strong>Platform Commissions:</strong> Channel fees (Airbnb 16.5%, Booking.com 16.5%, VRBO 12%, Direct 0%) are deducted as they are retained by the platforms.</li>
         <li><strong>Management Fee:</strong> Our management fee (incl GST) is calculated on the net channel payout amount, per your Management Authority agreement.</li>
         <li><strong>Operating Costs:</strong> Cleaning fees, technology fees, and any one-off expenses are deducted.</li>
