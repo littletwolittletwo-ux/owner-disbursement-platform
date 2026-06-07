@@ -15,7 +15,7 @@ import {
   getUnmatchedCandidates
 } from './services/reconciliation.js';
 import { calculatePayout } from './services/payoutEngine.js';
-import { calculateOwnerDisbursement, generateDisbursementPdf, bulkSend } from './services/disbursementEngine.js';
+import { calculateOwnerDisbursement, generateDisbursementPdf, bulkSend, bulkCreateDrafts, sendDraftEmail, bulkSendDrafts } from './services/disbursementEngine.js';
 import { generateReportHtml, generateEmailBodyHtml } from './services/reportGenerator.js';
 import { renderHtmlToPdf } from './services/pdfRenderer.js';
 import { syncHostaway, syncHostawayDateRange, syncHostawayMonth, queryReservations, getStraddlingBookings, reservationsToCSV, cleanupNonPMListings } from './services/hostaway.js';
@@ -308,7 +308,35 @@ router.get('/disbursements/:id/email-preview', async (req, res, next) => {
 });
 
 // ── Emails ──
-router.post('/emails/:month/send', async (req, res, next) => {
+// Create drafts (does NOT send — just prepares emails for review)
+router.post('/emails/:month/draft', async (req, res, next) => {
+  try {
+    res.json(await bulkCreateDrafts(req.params.month));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send a single draft by email_log ID
+router.post('/emails/:id/send', async (req, res, next) => {
+  try {
+    res.json(await sendDraftEmail(req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send all drafts for a month
+router.post('/emails/:month/send-all', async (req, res, next) => {
+  try {
+    res.json(await bulkSendDrafts(req.params.month));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Legacy: create + send in one step
+router.post('/emails/:month/send-legacy', async (req, res, next) => {
   try {
     res.json(await bulkSend(req.params.month));
   } catch (error) {
@@ -316,9 +344,31 @@ router.post('/emails/:month/send', async (req, res, next) => {
   }
 });
 
-router.get('/email-log', async (_req, res) => {
-  const rows = await query(`SELECT * FROM email_log ORDER BY sent_at DESC LIMIT 100`);
+router.get('/email-log', async (req, res) => {
+  const { month, status } = req.query;
+  let sql = `SELECT el.*, o.name owner_name, d.final_owner_payout
+     FROM email_log el
+     LEFT JOIN owners o ON o.id = el.owner_id
+     LEFT JOIN disbursements d ON d.id = el.disbursement_id
+     WHERE 1=1`;
+  const params = [];
+  let idx = 1;
+  if (month) { sql += ` AND el.statement_month = $${idx++}`; params.push(month); }
+  if (status) { sql += ` AND el.status = $${idx++}`; params.push(status); }
+  sql += ` ORDER BY el.sent_at DESC LIMIT 200`;
+  const rows = await query(sql, params);
   res.json(rows.rows);
+});
+
+// Delete a draft
+router.delete('/email-log/:id', async (req, res, next) => {
+  try {
+    const draft = (await query(`SELECT status FROM email_log WHERE id = $1`, [req.params.id])).rows[0];
+    if (!draft) return res.status(404).json({ error: 'Not found' });
+    if (draft.status === 'sent') return res.status(400).json({ error: 'Cannot delete sent emails' });
+    await query(`DELETE FROM email_log WHERE id = $1`, [req.params.id]);
+    res.json({ deleted: true });
+  } catch (error) { next(error); }
 });
 
 // ── ABA Export ──

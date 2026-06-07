@@ -458,61 +458,135 @@ function formatMoney(value) {
   return `${num < 0 ? '-' : ''}$${formatted}`;
 }
 
-export async function sendDisbursementEmail(id) {
+/**
+ * Create a draft email for a disbursement — stores HTML body, subject, and attachment names
+ * but does NOT send. Allows review before sending.
+ */
+export async function createDraftEmail(id) {
   const { disbursement } = await getDisbursementDetail(id);
-  if (!process.env.POSTMARK_API_KEY || !process.env.POSTMARK_FROM_EMAIL) {
-    const result = await query(
-      `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, error)
-       VALUES ($1,$2,$3,$4,'skipped','POSTMARK_API_KEY or POSTMARK_FROM_EMAIL is not configured') RETURNING *`,
-      [disbursement.owner_id, id, disbursement.email || 'missing-recipient', disbursement.month]
-    );
-    return result.rows[0];
-  }
-  try {
-    const pdf = await generateDisbursementPdf(id);
-    const emailHtml = await generateEmailBodyHtml(id);
-    const client = new postmark.ServerClient(process.env.POSTMARK_API_KEY);
+  const emailHtml = await generateEmailBodyHtml(id);
 
-    // Determine property address for subject line
-    const listings = (await query(
-      `SELECT l.address, l.name FROM listings l WHERE l.owner_id = $1 ORDER BY l.name LIMIT 1`,
-      [disbursement.owner_id]
-    )).rows;
-    const propertyRef = listings[0]?.address || listings[0]?.name || '';
-    const subjectSuffix = propertyRef ? ` - ${propertyRef}` : '';
+  // Determine property address for subject line
+  const listings = (await query(
+    `SELECT l.address, l.name FROM listings l WHERE l.owner_id = $1 ORDER BY l.name LIMIT 1`,
+    [disbursement.owner_id]
+  )).rows;
+  const propertyRef = listings[0]?.address || listings[0]?.name || '';
+  const subjectSuffix = propertyRef ? ` - ${propertyRef}` : '';
+
+  const subject = `LiveLuxe ${monthLabelForEmail(disbursement.month)} Statement${subjectSuffix}`;
+  const textBody = `Hi ${disbursement.owner_name},\n\nPlease find attached your disbursement statement for ${disbursement.month}.\n\nFinal Payout: $${Number(disbursement.final_owner_payout).toFixed(2)} AUD\n\nIf you have any questions, please contact us at contact@liveluxeau.com.\n\nBest regards,\nLiveLuxe Property Management`;
+
+  const attachmentNames = [
+    `LiveLuxe-Disbursement-${disbursement.month}.pdf`,
+    'LiveLuxe-Owner-Disbursement-Guide.pdf'
+  ];
+
+  // Upsert: if a draft already exists for this disbursement, update it
+  const existing = await query(
+    `SELECT id FROM email_log WHERE disbursement_id = $1 AND status = 'draft' LIMIT 1`,
+    [id]
+  );
+
+  let result;
+  if (existing.rows.length > 0) {
+    result = await query(
+      `UPDATE email_log SET subject = $1, html_body = $2, text_body = $3, attachment_names = $4,
+       recipient = $5, sent_at = now()
+       WHERE id = $6 RETURNING *`,
+      [subject, emailHtml, textBody, JSON.stringify(attachmentNames),
+       disbursement.email || 'missing-recipient', existing.rows[0].id]
+    );
+  } else {
+    result = await query(
+      `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, subject, html_body, text_body, attachment_names)
+       VALUES ($1,$2,$3,$4,'draft',$5,$6,$7,$8) RETURNING *`,
+      [disbursement.owner_id, id, disbursement.email || 'missing-recipient', disbursement.month,
+       subject, emailHtml, textBody, JSON.stringify(attachmentNames)]
+    );
+  }
+  return result.rows[0];
+}
+
+/**
+ * Create drafts for all disbursements in a month.
+ */
+export async function bulkCreateDrafts(month) {
+  const rows = (await query(`SELECT id FROM disbursements WHERE month=$1`, [month])).rows;
+  const results = [];
+  for (const row of rows) results.push(await createDraftEmail(row.id));
+  return results;
+}
+
+/**
+ * Send a specific draft email by email_log ID.
+ * Generates the PDF at send time (fresh), attaches guide, and sends via Postmark.
+ */
+export async function sendDraftEmail(emailLogId) {
+  const draft = (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
+  if (!draft) throw new Error('Draft not found');
+  if (draft.status === 'sent') throw new Error('Email already sent');
+
+  if (!process.env.POSTMARK_API_KEY || !process.env.POSTMARK_FROM_EMAIL) {
+    await query(
+      `UPDATE email_log SET status = 'skipped', error = 'POSTMARK_API_KEY or POSTMARK_FROM_EMAIL not configured' WHERE id = $1`,
+      [emailLogId]
+    );
+    return (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
+  }
+
+  try {
+    // Generate fresh PDF for the disbursement
+    const pdf = await generateDisbursementPdf(draft.disbursement_id);
+    const client = new postmark.ServerClient(process.env.POSTMARK_API_KEY);
 
     const response = await client.sendEmail({
       From: process.env.POSTMARK_FROM_EMAIL,
-      To: disbursement.email,
-      Subject: `LiveLuxe ${monthLabelForEmail(disbursement.month)} Statement${subjectSuffix}`,
-      HtmlBody: emailHtml,
-      TextBody: `Hi ${disbursement.owner_name},\n\nPlease find attached your disbursement statement for ${disbursement.month}.\n\nFinal Payout: $${Number(disbursement.final_owner_payout).toFixed(2)} AUD\n\nIf you have any questions, please contact us at contact@liveluxeau.com.\n\nBest regards,\nLiveLuxe Property Management`,
+      To: draft.recipient,
+      Subject: draft.subject,
+      HtmlBody: draft.html_body,
+      TextBody: draft.text_body,
       Attachments: [
-        { Name: `LiveLuxe-Disbursement-${disbursement.month}.pdf`, Content: pdf.toString('base64'), ContentType: 'application/pdf' },
+        { Name: `LiveLuxe-Disbursement-${draft.statement_month}.pdf`, Content: pdf.toString('base64'), ContentType: 'application/pdf' },
         ...getGuideAttachment()
       ]
     });
-    const result = await query(
-      `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, provider_message_id)
-       VALUES ($1,$2,$3,$4,'sent',$5) RETURNING *`,
-      [disbursement.owner_id, id, disbursement.email, disbursement.month, response.MessageID]
+
+    await query(
+      `UPDATE email_log SET status = 'sent', provider_message_id = $1, sent_at = now(), error = NULL WHERE id = $2`,
+      [response.MessageID, emailLogId]
     );
-    return result.rows[0];
+    return (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
   } catch (error) {
-    const result = await query(
-      `INSERT INTO email_log (owner_id, disbursement_id, recipient, statement_month, status, error)
-       VALUES ($1,$2,$3,$4,'error',$5) RETURNING *`,
-      [disbursement.owner_id, id, disbursement.email || 'missing-recipient', disbursement.month, error.message]
+    await query(
+      `UPDATE email_log SET status = 'error', error = $1 WHERE id = $2`,
+      [error.message, emailLogId]
     );
-    return result.rows[0];
+    return (await query(`SELECT * FROM email_log WHERE id = $1`, [emailLogId])).rows[0];
   }
 }
 
-export async function bulkSend(month) {
-  const rows = (await query(`SELECT id FROM disbursements WHERE month=$1`, [month])).rows;
+/**
+ * Send all draft emails for a month.
+ */
+export async function bulkSendDrafts(month) {
+  const drafts = (await query(
+    `SELECT id FROM email_log WHERE statement_month = $1 AND status = 'draft'`, [month]
+  )).rows;
   const results = [];
-  for (const row of rows) results.push(await sendDisbursementEmail(row.id));
+  for (const draft of drafts) results.push(await sendDraftEmail(draft.id));
   return results;
+}
+
+// Legacy: direct send (kept for backwards compatibility)
+export async function sendDisbursementEmail(id) {
+  const draft = await createDraftEmail(id);
+  return sendDraftEmail(draft.id);
+}
+
+export async function bulkSend(month) {
+  await bulkCreateDrafts(month);
+  return bulkSendDrafts(month);
 }
 
 function getGuideAttachment() {

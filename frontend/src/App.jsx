@@ -133,6 +133,7 @@ function App() {
   const listings = useApi('/api/listings', []);
   const dashboard = useApi(`/api/dashboard/${month}`, emptyDashboard());
   const commissionRules = useApi('/api/commission-rules', []);
+  const emailLog = useApi(`/api/email-log?month=${month}`, []);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('info');
   const [calculating, setCalculating] = useState(false);
@@ -232,10 +233,36 @@ function App() {
     } catch (e) { flash(e.message, 'error'); }
   }
 
-  async function sendEmails() {
+  async function createDrafts() {
     try {
-      const result = await post(`/api/emails/${month}/send`, {});
-      flash(`Email action logged for ${result.length} disbursements`, 'success');
+      const result = await post(`/api/emails/${month}/draft`, {});
+      flash(`Created ${result.length} email drafts — review before sending`, 'success');
+      emailLog.reload();
+    } catch (e) { flash(e.message, 'error'); }
+  }
+
+  async function sendSingleDraft(emailLogId) {
+    try {
+      const result = await post(`/api/emails/${emailLogId}/send`, {});
+      flash(result.status === 'sent' ? `Email sent to ${result.recipient}` : `Email ${result.status}: ${result.error || ''}`, result.status === 'sent' ? 'success' : 'error');
+      emailLog.reload();
+    } catch (e) { flash(e.message, 'error'); }
+  }
+
+  async function sendAllDrafts() {
+    try {
+      const result = await post(`/api/emails/${month}/send-all`, {});
+      const sent = result.filter(r => r.status === 'sent').length;
+      flash(`Sent ${sent} of ${result.length} emails`, sent > 0 ? 'success' : 'error');
+      emailLog.reload();
+    } catch (e) { flash(e.message, 'error'); }
+  }
+
+  async function deleteDraft(emailLogId) {
+    try {
+      await fetch(`${API}/api/email-log/${emailLogId}`, { method: 'DELETE' });
+      flash('Draft deleted', 'success');
+      emailLog.reload();
     } catch (e) { flash(e.message, 'error'); }
   }
 
@@ -372,10 +399,12 @@ function App() {
 
       {tab === 'dashboard' && <DashboardView
         month={month} dashboard={dashboard} owners={ownerOptions}
-        uploadFile={uploadFile} syncHostaway={syncHostaway} sendEmails={sendEmails}
+        uploadFile={uploadFile} syncHostaway={syncHostaway}
+        createDrafts={createDrafts} sendAllDrafts={sendAllDrafts} sendSingleDraft={sendSingleDraft} deleteDraft={deleteDraft}
         downloadAba={downloadAba} openManualMatch={openManualMatch} previewPdf={previewPdf}
         viewReport={viewReport} downloadReportPdf={downloadReportPdf} previewEmail={previewEmail}
         loadTrustConfig={loadTrustConfig} flash={flash}
+        emailLog={emailLog}
         sidebarSection={sidebarSection} setSidebarSection={setSidebarSection}
       />}
 
@@ -453,7 +482,10 @@ function App() {
 
 // ── Dashboard View ──
 
-function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sendEmails, downloadAba, openManualMatch, previewPdf, viewReport, downloadReportPdf, previewEmail, loadTrustConfig, flash, sidebarSection, setSidebarSection }) {
+function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, createDrafts, sendAllDrafts, sendSingleDraft, deleteDraft, downloadAba, openManualMatch, previewPdf, viewReport, downloadReportPdf, previewEmail, loadTrustConfig, flash, emailLog, sidebarSection, setSidebarSection }) {
+  const drafts = (emailLog.data || []).filter(e => e.status === 'draft');
+  const sent = (emailLog.data || []).filter(e => e.status === 'sent');
+
   return (
     <>
       <section className="mx-auto grid max-w-7xl gap-4 px-6 py-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -486,9 +518,14 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
 
           <SidebarToggle label="Quick Actions" section="actions" current={sidebarSection} onToggle={setSidebarSection}>
             <div className="space-y-2">
-              <button className="w-full rounded bg-gold px-4 py-2 text-sm font-semibold text-ink hover:bg-gold/90 transition-colors" onClick={sendEmails}>
-                <Mail className="mr-2 inline h-4 w-4" />Send Disbursement Emails
+              <button className="w-full rounded bg-gold px-4 py-2 text-sm font-semibold text-ink hover:bg-gold/90 transition-colors" onClick={createDrafts}>
+                <Mail className="mr-2 inline h-4 w-4" />Create Email Drafts
               </button>
+              {drafts.length > 0 && (
+                <button className="w-full rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 transition-colors" onClick={sendAllDrafts}>
+                  <Mail className="mr-2 inline h-4 w-4" />Send All Drafts ({drafts.length})
+                </button>
+              )}
               <button className="w-full rounded bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy/90 transition-colors" onClick={downloadAba}>
                 <Download className="mr-2 inline h-4 w-4" />Download ABA File
               </button>
@@ -533,8 +570,8 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
           <Panel title="Per-Owner Disbursement Summary"
             actions={
               <div className="flex gap-2">
-                <button className="rounded bg-gold px-3 py-1.5 text-xs font-semibold text-ink hover:bg-gold/90" onClick={sendEmails}>
-                  <Mail className="mr-1 inline h-3 w-3" />Email All
+                <button className="rounded bg-gold px-3 py-1.5 text-xs font-semibold text-ink hover:bg-gold/90" onClick={createDrafts}>
+                  <Mail className="mr-1 inline h-3 w-3" />Create Drafts
                 </button>
                 <button className="rounded bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy/90" onClick={downloadAba}>
                   <Download className="mr-1 inline h-3 w-3" />ABA
@@ -543,6 +580,66 @@ function DashboardView({ month, dashboard, owners, uploadFile, syncHostaway, sen
             }>
             <DisbursementTable summaries={dashboard.data.ownerSummaries || []} onPreviewPdf={previewPdf} onViewReport={viewReport} onDownloadPdf={downloadReportPdf} onPreviewEmail={previewEmail} />
           </Panel>
+
+          {/* Email Drafts Panel */}
+          {(emailLog.data || []).length > 0 && (
+            <Panel title={`Email Drafts & Log (${drafts.length} draft${drafts.length !== 1 ? 's' : ''}, ${sent.length} sent)`}
+              actions={drafts.length > 0 ? (
+                <button className="rounded bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700" onClick={sendAllDrafts}>
+                  Send All Drafts
+                </button>
+              ) : null}>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Owner</th>
+                      <th className="px-3 py-2">Recipient</th>
+                      <th className="px-3 py-2">Subject</th>
+                      <th className="px-3 py-2">Payout</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Attachments</th>
+                      <th className="px-3 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(emailLog.data || []).map(e => (
+                      <tr key={e.id} className="border-b last:border-0 hover:bg-slate-50">
+                        <td className="px-3 py-2 text-xs font-medium">{e.owner_name || '—'}</td>
+                        <td className="px-3 py-2 text-xs text-slate-500">{e.recipient}</td>
+                        <td className="px-3 py-2 text-xs max-w-xs truncate">{e.subject || '—'}</td>
+                        <td className="px-3 py-2 text-xs font-semibold text-navy">{e.final_owner_payout ? money(e.final_owner_payout) : '—'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            e.status === 'draft' ? 'bg-amber-100 text-amber-700' :
+                            e.status === 'sent' ? 'bg-green-100 text-green-700' :
+                            e.status === 'error' ? 'bg-red-100 text-red-700' :
+                            'bg-slate-100 text-slate-500'
+                          }`}>{e.status}</span>
+                        </td>
+                        <td className="px-3 py-2 text-[10px] text-slate-400">
+                          {(e.attachment_names || []).map((n, i) => <div key={i}>{n}</div>)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex gap-1">
+                            {e.status === 'draft' && (
+                              <>
+                                <button className="rounded bg-green-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-green-700" onClick={() => sendSingleDraft(e.id)}>Send</button>
+                                <button className="rounded border border-slate-300 px-2 py-1 text-[10px] text-slate-500 hover:border-red-400 hover:text-red-600" onClick={() => deleteDraft(e.id)}>Delete</button>
+                              </>
+                            )}
+                            {e.disbursement_id && (
+                              <button className="rounded border border-slate-300 px-2 py-1 text-[10px] text-slate-500 hover:border-purple-400 hover:text-purple-600" onClick={() => previewEmail(e.disbursement_id)}>Preview</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
 
           <div className="grid gap-5 xl:grid-cols-2">
             <Panel title="Unmatched Payments">
