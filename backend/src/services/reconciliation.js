@@ -196,30 +196,35 @@ export async function getUnmatchedCandidates(transactionId) {
 
 export async function reconciliationSummary(month) {
   const { start, end } = await import('../utils/dates.js').then(m => m.startEndForMonth(month));
-  const [trust, reservations, owners, unmatched, pending] = await Promise.all([
-    query(`SELECT channel, COALESCE(SUM(amount),0)::float total FROM trust_transactions WHERE to_char(transaction_date,'YYYY-MM')=$1 GROUP BY channel`, [month]),
+  const [trustByChannel, reservations, owners, unmatched, pending] = await Promise.all([
+    // Trust received = channel payout (net after platform fees) from reservations checking out this month
+    query(`SELECT r.platform as channel, COALESCE(SUM(r.net_amount),0)::float total
+           FROM reservations r
+           JOIN listings l ON l.id = r.listing_id
+           WHERE l.owner_id IS NOT NULL AND r.check_out BETWEEN $1 AND $2
+           GROUP BY r.platform`, [start, end]),
     query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
            FROM reservations r
            LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN owners o ON o.id=l.owner_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
            LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE r.disbursement_month=$1 OR (r.check_out BETWEEN $2 AND $3)
-           ORDER BY r.expected_payout_date`, [month, start, end]),
+           WHERE r.check_out BETWEEN $1 AND $2
+           ORDER BY r.expected_payout_date`, [start, end]),
     query(`SELECT d.*, o.name owner_name FROM disbursements d JOIN owners o ON o.id=d.owner_id WHERE d.month=$1 ORDER BY o.name`, [month]),
     query(`SELECT * FROM trust_transactions WHERE status='unmatched' AND to_char(transaction_date,'YYYY-MM')=$1 ORDER BY transaction_date`, [month]),
     query(`SELECT r.*, l.name listing_name FROM reservations r LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
-           WHERE r.disbursement_month=$1 AND m.id IS NULL ORDER BY r.expected_payout_date`, [month])
+           WHERE r.check_out BETWEEN $1 AND $2 AND m.id IS NULL ORDER BY r.expected_payout_date`, [start, end])
   ]);
   return {
-    trustSummary: trust.rows,
+    trustSummary: trustByChannel.rows,
     reservationLedger: reservations.rows,
     ownerSummaries: owners.rows,
     unmatchedPayments: unmatched.rows,
     pendingPayouts: pending.rows,
     totals: {
-      trustReceived: roundCurrency(trust.rows.reduce((sum, row) => sum + Number(row.total), 0)),
+      trustReceived: roundCurrency(trustByChannel.rows.reduce((sum, row) => sum + Number(row.total), 0)),
       reservations: reservations.rows.length,
       unmatched: unmatched.rows.length,
       pending: pending.rows.length
