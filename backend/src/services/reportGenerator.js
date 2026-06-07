@@ -36,14 +36,19 @@ async function getReservationDetails(disbursementId) {
   const { disbursement } = await getDisbursementDetail(disbursementId);
   const { start, end } = startEndForMonth(disbursement.month);
 
+  // Month-segregated: checkout in this month OR straddler (checkout prior but payout in this month)
   const reservations = (await query(
-    `SELECT r.*, l.name listing_name, l.address
+    `SELECT r.*, l.name listing_name, l.address,
+            CASE WHEN r.check_out < $2 THEN true ELSE false END as is_straddler
      FROM reservations r
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
-       AND r.check_out <= $2
+       AND (
+         (r.check_out >= $2 AND r.check_out <= $3)
+         OR (r.check_out < $2 AND r.expected_payout_date >= $2 AND r.expected_payout_date <= $3)
+       )
      ORDER BY r.check_in`,
-    [disbursement.owner_id, end]
+    [disbursement.owner_id, start, end]
   )).rows;
 
   return reservations.map(r => {
@@ -57,19 +62,22 @@ async function getReservationDetails(disbursementId) {
  * Get bookings excluded/deferred (checkout after period end — rolling to next month).
  */
 async function getExcludedBookings(ownerId, month) {
-  const { end } = startEndForMonth(month);
-  // Next month end
+  const { start, end } = startEndForMonth(month);
+  // Next month boundaries
   const [y, m] = month.split('-').map(Number);
   const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
   const nextEnd = startEndForMonth(nextMonth).end;
 
+  // Deferred bookings: check-in during or before this month, but checkout after this month
+  // AND payout date also after this month (so they'll roll into next month's disbursement)
   const rows = (await query(
     `SELECT r.*, l.name listing_name, l.address
      FROM reservations r
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
-       AND r.check_out > $2
-       AND r.check_in <= $3
+       AND r.check_in <= $2
+       AND (r.check_out > $2 OR r.expected_payout_date > $2)
+       AND r.check_out <= $3
      ORDER BY r.check_in`,
     [ownerId, end, nextEnd]
   )).rows;

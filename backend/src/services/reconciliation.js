@@ -196,26 +196,34 @@ export async function getUnmatchedCandidates(transactionId) {
 
 export async function reconciliationSummary(month) {
   const { start, end } = await import('../utils/dates.js').then(m => m.startEndForMonth(month));
+
+  // Month-segregated filter: checkout in this month OR straddler (checkout prior but payout in this month)
+  const monthFilter = `(
+    (r.check_out >= $1 AND r.check_out <= $2)
+    OR (r.check_out < $1 AND r.expected_payout_date >= $1 AND r.expected_payout_date <= $2)
+  )`;
+
   const [trustByChannel, reservations, owners, unmatched, pending] = await Promise.all([
-    // Trust received = channel payout (net after platform fees) from reservations checking out this month
+    // Trust received = channel payout from reservations belonging to this month
     query(`SELECT r.platform as channel, COALESCE(SUM(r.net_amount),0)::float total
            FROM reservations r
            JOIN listings l ON l.id = r.listing_id
-           WHERE l.owner_id IS NOT NULL AND r.check_out BETWEEN $1 AND $2
+           WHERE l.owner_id IS NOT NULL AND ${monthFilter}
            GROUP BY r.platform`, [start, end]),
-    query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
+    query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout,
+                  CASE WHEN r.check_out < $1 THEN true ELSE false END as is_straddler
            FROM reservations r
            LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN owners o ON o.id=l.owner_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
            LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE r.check_out BETWEEN $1 AND $2
+           WHERE ${monthFilter}
            ORDER BY r.expected_payout_date`, [start, end]),
     query(`SELECT d.*, o.name owner_name FROM disbursements d JOIN owners o ON o.id=d.owner_id WHERE d.month=$1 ORDER BY o.name`, [month]),
     query(`SELECT * FROM trust_transactions WHERE status='unmatched' AND to_char(transaction_date,'YYYY-MM')=$1 ORDER BY transaction_date`, [month]),
     query(`SELECT r.*, l.name listing_name FROM reservations r LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
-           WHERE r.check_out BETWEEN $1 AND $2 AND m.id IS NULL ORDER BY r.expected_payout_date`, [start, end])
+           WHERE ${monthFilter} AND m.id IS NULL ORDER BY r.expected_payout_date`, [start, end])
   ]);
   return {
     trustSummary: trustByChannel.rows,

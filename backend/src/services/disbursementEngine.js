@@ -32,8 +32,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Get ALL reservations that checked out within the period (spec §3.1)
-    // No longer requires trust transaction match — unpaid bookings are included but flagged
+    // Get reservations for THIS month only (segregated):
+    //   1. Checkout within this month, OR
+    //   2. Straddler: checkout in prior month but expected payout date falls in this month
     const reservations = (await client.query(
       `SELECT r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
@@ -43,7 +44,8 @@ export async function calculateOwnerDisbursement(ownerId, month) {
               COALESCE(l.mgmt_fee_boost, 0) as listing_boost,
               cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers,
               CASE WHEN m.id IS NOT NULL AND t.transaction_date BETWEEN $2 AND $3
-                   THEN true ELSE false END as is_payout_received
+                   THEN true ELSE false END as is_payout_received,
+              CASE WHEN r.check_out < $2 THEN true ELSE false END as is_straddler
        FROM reservations r
        JOIN listings l ON l.id = r.listing_id
        LEFT JOIN commission_rules cr ON cr.owner_id = l.owner_id
@@ -52,7 +54,10 @@ export async function calculateOwnerDisbursement(ownerId, month) {
        LEFT JOIN transaction_reservation_matches m ON m.reservation_id = r.id
        LEFT JOIN trust_transactions t ON t.id = m.trust_transaction_id
        WHERE l.owner_id = $1
-         AND r.check_out <= $3`,
+         AND (
+           (r.check_out >= $2 AND r.check_out <= $3)
+           OR (r.check_out < $2 AND r.expected_payout_date >= $2 AND r.expected_payout_date <= $3)
+         )`,
       [ownerId, start, end]
     )).rows;
 
