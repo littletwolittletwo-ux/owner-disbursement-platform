@@ -1,5 +1,5 @@
 import { query, withTransaction } from '../db.js';
-import { calculatePayout, inferChannel, normalizePlatform, roundCurrency, getInstallmentShare } from './payoutEngine.js';
+import { calculatePayout, inferChannel, normalizePlatform, roundCurrency, countPeriodNights } from './payoutEngine.js';
 import { startEndForMonth } from '../utils/dates.js';
 import { date, money, value } from './parser.js';
 
@@ -210,44 +210,29 @@ export async function getUnmatchedCandidates(transactionId) {
 }
 
 export async function reconciliationSummary(month) {
-  const { start } = startEndForMonth(month);
+  const { start, end } = startEndForMonth(month);
 
-  const [mainReservations, longStayExtras, owners, unmatched] = await Promise.all([
-    // Primary: reservations whose first/only payout is this month
+  const [reservationResult, owners, unmatched] = await Promise.all([
+    // Checkout-based: include bookings where checkout falls in this month
     query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
            FROM reservations r
            LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN owners o ON o.id=l.owner_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
            LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE r.disbursement_month = $1
-           ORDER BY r.expected_payout_date`, [month]),
-    // Airbnb long-stay installments from prior months
-    query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
-           FROM reservations r
-           LEFT JOIN listings l ON l.id=r.listing_id
-           LEFT JOIN owners o ON o.id=l.owner_id
-           LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
-           LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE r.disbursement_month < $1
-             AND r.platform ILIKE '%airbnb%'
-             AND (r.check_out::date - r.check_in::date) >= 28
-             AND r.check_out::date > $2::date
-           ORDER BY r.expected_payout_date`, [month, start]),
+           WHERE r.check_out >= $1 AND r.check_out <= $2
+           ORDER BY r.check_out`, [start, end]),
     query(`SELECT d.*, o.name owner_name FROM disbursements d JOIN owners o ON o.id=d.owner_id WHERE d.month=$1 ORDER BY o.name`, [month]),
     query(`SELECT * FROM trust_transactions WHERE status='unmatched' AND to_char(transaction_date,'YYYY-MM')=$1 ORDER BY transaction_date`, [month]),
   ]);
 
-  // Combine reservations, filtering long-stay extras to those with share > 0
-  const reservations = [...mainReservations.rows];
-  for (const r of longStayExtras.rows) {
-    if (getInstallmentShare(r, month) > 0) reservations.push(r);
-  }
+  const reservations = reservationResult.rows;
 
-  // Build trust summary by channel, applying installment shares
+  // Build trust summary by channel, pro-rating straddlers by nights in month
   const channelTotals = {};
   for (const r of reservations) {
-    const share = getInstallmentShare(r, month);
+    const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
+    const share = totalNights === 0 ? 0 : periodNights / totalNights;
     const net = roundCurrency(Number(r.net_amount || 0) * share);
     const ch = r.platform || 'unknown';
     channelTotals[ch] = (channelTotals[ch] || 0) + net;
