@@ -32,11 +32,10 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Hybrid booking selection:
-    //  1. Checkout in this month AND payout in this month (normal bookings)
-    //  2. Payout in this month but checkout after month end (late check-ins, e.g. May 28 → Jun 2)
-    // Excludes straddlers whose payout was in a prior month (check-in before month, payout before month).
-    // Group 1 uses full amounts. Group 2 uses full amounts.
+    // Booking selection — include if:
+    //  A) Payout (disbursement_month) is in this month — full amount
+    //  B) Checkout is in this month but payout is later (e.g. Booking.com) — full amount
+    // This excludes straddlers whose payout was in a prior month.
     const reservationCols = `r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
               l.management_fee_pct as listing_mgmt_fee_pct,
@@ -54,12 +53,11 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       `SELECT ${reservationCols} ${reservationJoins}
        WHERE l.owner_id = $1
          AND (
-           (r.check_out >= $2 AND r.check_out <= $3 AND r.disbursement_month = $4)
-           OR
-           (r.disbursement_month = $4 AND r.check_out > $3)
+           r.disbursement_month = $2
+           OR (r.check_out >= $3 AND r.check_out <= $4 AND r.disbursement_month > $2)
          )
        ORDER BY r.check_in`,
-      [ownerId, start, end, month]
+      [ownerId, month, start, end]
     )).rows;
 
     // Get expenses for the month

@@ -213,15 +213,15 @@ export async function reconciliationSummary(month) {
   const { start, end } = startEndForMonth(month);
 
   const [reservationResult, owners, unmatched] = await Promise.all([
-    // Hybrid: checkout in month + payout in month, OR payout in month + checkout after
+    // Include: payout in month OR (checkout in month with later payout)
     query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
            FROM reservations r
            LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN owners o ON o.id=l.owner_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
            LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE (r.check_out >= $1 AND r.check_out <= $2 AND r.disbursement_month = $3)
-              OR (r.disbursement_month = $3 AND r.check_out > $2)
+           WHERE r.disbursement_month = $3
+              OR (r.check_out >= $1 AND r.check_out <= $2 AND r.disbursement_month > $3)
            ORDER BY r.expected_payout_date`, [start, end, month]),
     query(`SELECT d.*, o.name owner_name FROM disbursements d JOIN owners o ON o.id=d.owner_id WHERE d.month=$1 ORDER BY o.name`, [month]),
     query(`SELECT * FROM trust_transactions WHERE status='unmatched' AND to_char(transaction_date,'YYYY-MM')=$1 ORDER BY transaction_date`, [month]),

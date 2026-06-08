@@ -31,8 +31,7 @@ function shortDate(dateStr) {
 
 /**
  * Get reservations detail for a disbursement (for the reservation table).
- * Hybrid approach: include bookings where checkout is in month AND payout is in month,
- * plus bookings where payout is in month but checkout is after month end.
+ * Include bookings where payout is in month OR checkout is in month with later payout.
  * Uses full booking amounts (no pro-rating).
  */
 async function getReservationDetails(disbursementId) {
@@ -45,12 +44,11 @@ async function getReservationDetails(disbursementId) {
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
        AND (
-         (r.check_out >= $2 AND r.check_out <= $3 AND r.disbursement_month = $4)
-         OR
-         (r.disbursement_month = $4 AND r.check_out > $3)
+         r.disbursement_month = $2
+         OR (r.check_out >= $3 AND r.check_out <= $4 AND r.disbursement_month > $2)
        )
      ORDER BY r.check_in`,
-    [disbursement.owner_id, start, end, disbursement.month]
+    [disbursement.owner_id, disbursement.month, start, end]
   )).rows;
 
   return allRes.map(r => {
