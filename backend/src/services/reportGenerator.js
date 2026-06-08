@@ -1,6 +1,6 @@
 import { query } from '../db.js';
 import { getDisbursementDetail, channelLabel } from './disbursementEngine.js';
-import { normalizePlatform } from './payoutEngine.js';
+import { normalizePlatform, countPeriodNights } from './payoutEngine.js';
 import { startEndForMonth } from '../utils/dates.js';
 
 // ── Colors ──
@@ -31,35 +31,36 @@ function shortDate(dateStr) {
 
 /**
  * Get reservations detail for a disbursement (for the reservation table).
- * Uses disbursement_month (payout-based) filtering with full booking amounts.
+ * Uses checkout-based filtering: include bookings where checkout falls in the month.
+ * Straddlers (check-in before month start) are pro-rated by sleeping nights in month.
  */
 async function getReservationDetails(disbursementId) {
   const { disbursement } = await getDisbursementDetail(disbursementId);
+  const { start, end } = startEndForMonth(disbursement.month);
 
   const allRes = (await query(
     `SELECT r.*, l.name listing_name, l.address
      FROM reservations r
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
-       AND r.disbursement_month = $2
+       AND r.check_out >= $2 AND r.check_out <= $3
      ORDER BY r.check_in`,
-    [disbursement.owner_id, disbursement.month]
+    [disbursement.owner_id, start, end]
   )).rows;
 
   return allRes.map(r => {
-    const totalNights = Math.max(0, Math.round(
-      (new Date(r.check_out) - new Date(r.check_in)) / 86400000
-    ));
-    return { ...r, periodNights: totalNights, totalNights, share: 1.0, periodGross: Number(r.gross_amount) };
+    const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
+    const share = totalNights === 0 ? 0 : periodNights / totalNights;
+    return { ...r, periodNights, totalNights, share, periodGross: Number(r.gross_amount) * share };
   });
 }
 
 /**
  * Get bookings deferred to next month — check-in during/before this month
- * but payout (disbursement_month) is a future month.
+ * but checkout after month end. These will appear in a future month's statement.
  */
 async function getExcludedBookings(ownerId, month) {
-  const { end } = startEndForMonth(month);
+  const { start, end } = startEndForMonth(month);
 
   const rows = (await query(
     `SELECT r.*, l.name listing_name, l.address
@@ -67,9 +68,9 @@ async function getExcludedBookings(ownerId, month) {
      JOIN listings l ON l.id = r.listing_id
      WHERE l.owner_id = $1
        AND r.check_in <= $2
-       AND r.disbursement_month > $3
+       AND r.check_out > $2
      ORDER BY r.check_in`,
-    [ownerId, end, month]
+    [ownerId, end]
   )).rows;
 
   return rows;
@@ -339,7 +340,7 @@ ${excluded.length > 0 ? `
     <!-- Deferred Revenue Box -->
     <div class="info-box info-box-green">
       <h4>Deferred Revenue &mdash; Rolling to Next Month</h4>
-      <p>The following bookings have payout dates beyond ${shortDate(end)} and will be included in a future statement:</p>
+      <p>The following bookings check out after ${shortDate(end)} and will be included in the checkout month's statement:</p>
       <table class="deferred-table">
         <thead>
           <tr><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Channel</th><th>Reason</th></tr>
@@ -376,7 +377,7 @@ ${mgmtDiscount > 0 ? `
       <h4>How Your Disbursement Is Calculated</h4>
       <p>Each monthly statement follows a transparent 5-step methodology:</p>
       <ol class="steps" style="margin-top:10px;">
-        <li><strong>Booking Revenue:</strong> We total all completed guest bookings where the platform payout was received during the statement period.</li>
+        <li><strong>Booking Revenue:</strong> We total all completed guest bookings where the checkout falls within the statement period. Cross-month bookings are pro-rated by nights in the period.</li>
         <li><strong>Platform Commissions:</strong> Channel fees (Airbnb 16.5%, Booking.com 16.5%, VRBO 12%, Direct 0%) are deducted as they are retained by the platforms.</li>
         <li><strong>Management Fee:</strong> Our management fee (incl GST) is calculated on the net channel payout amount, per your Management Authority agreement.</li>
         <li><strong>Operating Costs:</strong> Cleaning fees, technology fees, and any one-off expenses are deducted.</li>
