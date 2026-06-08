@@ -1,5 +1,5 @@
 import { query, withTransaction } from '../db.js';
-import { calculatePayout, inferChannel, normalizePlatform, roundCurrency, countPeriodNights } from './payoutEngine.js';
+import { calculatePayout, inferChannel, normalizePlatform, roundCurrency } from './payoutEngine.js';
 import { startEndForMonth } from '../utils/dates.js';
 import { date, money, value } from './parser.js';
 
@@ -213,27 +213,26 @@ export async function reconciliationSummary(month) {
   const { start, end } = startEndForMonth(month);
 
   const [reservationResult, owners, unmatched] = await Promise.all([
-    // Checkout-based: include bookings where checkout falls in this month
+    // Hybrid: checkout in month + payout in month, OR payout in month + checkout after
     query(`SELECT r.*, l.name listing_name, o.name owner_name, m.trust_transaction_id, t.amount actual_payout
            FROM reservations r
            LEFT JOIN listings l ON l.id=r.listing_id
            LEFT JOIN owners o ON o.id=l.owner_id
            LEFT JOIN transaction_reservation_matches m ON m.reservation_id=r.id
            LEFT JOIN trust_transactions t ON t.id=m.trust_transaction_id
-           WHERE r.check_out >= $1 AND r.check_out <= $2
-           ORDER BY r.check_out`, [start, end]),
+           WHERE (r.check_out >= $1 AND r.check_out <= $2 AND r.disbursement_month = $3)
+              OR (r.disbursement_month = $3 AND r.check_out > $2)
+           ORDER BY r.expected_payout_date`, [start, end, month]),
     query(`SELECT d.*, o.name owner_name FROM disbursements d JOIN owners o ON o.id=d.owner_id WHERE d.month=$1 ORDER BY o.name`, [month]),
     query(`SELECT * FROM trust_transactions WHERE status='unmatched' AND to_char(transaction_date,'YYYY-MM')=$1 ORDER BY transaction_date`, [month]),
   ]);
 
   const reservations = reservationResult.rows;
 
-  // Build trust summary by channel, pro-rating straddlers by nights in month
+  // Build trust summary by channel — full amounts (no pro-rating)
   const channelTotals = {};
   for (const r of reservations) {
-    const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
-    const share = totalNights === 0 ? 0 : periodNights / totalNights;
-    const net = roundCurrency(Number(r.net_amount || 0) * share);
+    const net = roundCurrency(Number(r.net_amount || 0));
     const ch = r.platform || 'unknown';
     channelTotals[ch] = (channelTotals[ch] || 0) + net;
   }
