@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, withTransaction } from '../db.js';
 import { startEndForMonth } from '../utils/dates.js';
-import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate } from './payoutEngine.js';
+import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate, countPeriodNights } from './payoutEngine.js';
 import { generateReportHtml, generateEmailBodyHtml } from './reportGenerator.js';
 import { renderHtmlToPdf } from './pdfRenderer.js';
 import { createGmailDraft, sendGmailDraft, deleteGmailDraft } from './gmailService.js';
@@ -32,10 +32,8 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Booking selection — include if:
-    //  A) Payout (disbursement_month) is in this month — full amount
-    //  B) Checkout is in this month but payout is later (e.g. Booking.com) — full amount
-    // This excludes straddlers whose payout was in a prior month.
+    // Get reservations whose CHECKOUT falls in this month.
+    // Straddlers (check-in before month start) are pro-rated by sleeping nights in month.
     const reservationCols = `r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
               l.management_fee_pct as listing_mgmt_fee_pct,
@@ -52,12 +50,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const reservations = (await client.query(
       `SELECT ${reservationCols} ${reservationJoins}
        WHERE l.owner_id = $1
-         AND (
-           r.disbursement_month = $2
-           OR (r.check_out >= $3 AND r.check_out <= $4 AND r.disbursement_month > $2)
-         )
+         AND r.check_out >= $2 AND r.check_out <= $3
        ORDER BY r.check_in`,
-      [ownerId, month, start, end]
+      [ownerId, start, end]
     )).rows;
 
     // Get expenses for the month
@@ -71,9 +66,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       [ownerId, start, end]
     )).rows;
 
-    // Calculate per-reservation using full booking amounts.
-    // All included bookings use full amounts (no pro-rating) — the query already
-    // filters to the correct set of bookings for this month.
+    // Calculate per-reservation.
+    // Bookings fully within the month use full amounts (share=1).
+    // Straddlers (check-in before month start) are pro-rated by sleeping nights in month.
     let totalGross = 0;
     let totalChannelCommission = 0;
     let totalChannelPayout = 0;
@@ -85,9 +80,18 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const listingsWithBookings = new Set();
 
     const reservationDetails = reservations.map(r => {
-      const gross = roundCurrency(Number(r.gross_amount));
-      const cleaningFee = roundCurrency(resolveCleaningFee(r));
-      const platformFee = roundCurrency(Number(r.platform_fee));
+      const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
+      const share = totalNights === 0 ? 0 : periodNights / totalNights;
+      const fullGross = roundCurrency(Number(r.gross_amount));
+      const gross = roundCurrency(fullGross * share);
+
+      // Cleaning fee: pro-rated by share (same proportion as nights)
+      const fullCleaningFee = roundCurrency(resolveCleaningFee(r));
+      const cleaningFee = roundCurrency(fullCleaningFee * share);
+
+      // Platform fee: pro-rated by share
+      const fullPlatformFee = roundCurrency(Number(r.platform_fee));
+      const platformFee = roundCurrency(fullPlatformFee * share);
       const channelPayout = roundCurrency(gross - platformFee);
 
       // Management fee calculated on channel payout (incGST rate, BEFORE cleaning)
@@ -97,9 +101,6 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       const netToOwner = roundCurrency(channelPayout - mgmtFee - cleaningFee);
 
       const expectedPayoutDate = calculateExpectedPayoutDate(r);
-      const totalNights = Math.max(0, Math.round(
-        (new Date(r.check_out) - new Date(r.check_in)) / 86400000
-      ));
 
       totalGross += gross;
       totalChannelCommission += platformFee;
@@ -111,9 +112,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
 
       return {
         ...r,
-        calc_period_nights: totalNights,
+        calc_period_nights: periodNights,
         calc_total_nights: totalNights,
-        calc_prorate_share: 1.0,
+        calc_prorate_share: share,
         calc_channel_payout: channelPayout,
         calc_cleaning: cleaningFee,
         calc_net_income: channelPayout,
@@ -193,7 +194,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     // Line items per reservation (including unpaid, flagged)
     for (const r of reservationDetails) {
       const unpaidTag = '';
-      const proRateNote = '';
+      const proRateNote = r.calc_prorate_share < 1
+        ? ` (${r.calc_period_nights}/${r.calc_total_nights} nights in period)`
+        : '';
 
       await insertLine(client, disbursement.id, 'gross_booking',
         `${r.platform} - ${r.guest_name || 'Guest'} @ ${r.listing_name} (${r.check_in} to ${r.check_out})${proRateNote}${unpaidTag}`,
