@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, withTransaction } from '../db.js';
 import { startEndForMonth } from '../utils/dates.js';
-import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate } from './payoutEngine.js';
+import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate, getInstallmentShare } from './payoutEngine.js';
 import { generateReportHtml, generateEmailBodyHtml } from './reportGenerator.js';
 import { renderHtmlToPdf } from './pdfRenderer.js';
 import { createGmailDraft, sendGmailDraft, deleteGmailDraft } from './gmailService.js';
@@ -32,29 +32,52 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Get reservations whose PAYOUT falls in this month (disbursement_month).
-    // This is the month the money arrives in the trust account, determined by platform payout rules:
-    //   Airbnb: 1 biz day after check-in
-    //   Booking.com: following Friday after checkout
-    //   VRBO: day after checkout
-    // Full amounts — no pro-rating. The payout arrives as a lump sum in one month.
-    const reservations = (await client.query(
-      `SELECT r.*, l.name listing_name, l.address,
+    // Get reservations whose PAYOUT falls in this month.
+    // Two groups:
+    //   1. All reservations with disbursement_month = this month (first/only payout)
+    //   2. Airbnb long-stay (28+ nights) reservations from prior months that have
+    //      installment payouts arriving in this month.
+    //
+    // Airbnb pays monthly installments for stays >= 28 nights:
+    //   - First payout: 1 biz day after check-in
+    //   - Subsequent payouts: every ~30 days
+    // For these, we pro-rate by installment share.
+    const reservationCols = `r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
               l.management_fee_pct as listing_mgmt_fee_pct,
               l.cleaning_fee_baseline,
               COALESCE(l.mgmt_fee_waiver_pct, 0) as listing_waiver_pct,
               COALESCE(l.mgmt_fee_boost, 0) as listing_boost,
-              cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers
-       FROM reservations r
+              cr.type commission_type, cr.rate commission_rate, cr.flat_amount, cr.tiers`;
+    const reservationJoins = `FROM reservations r
        JOIN listings l ON l.id = r.listing_id
        LEFT JOIN commission_rules cr ON cr.owner_id = l.owner_id
          AND (cr.listing_id = l.id OR cr.listing_id IS NULL)
-         AND (cr.platform = r.platform OR cr.platform = 'all')
-       WHERE l.owner_id = $1
-         AND r.disbursement_month = $2`,
+         AND (cr.platform = r.platform OR cr.platform = 'all')`;
+
+    // Group 1: primary disbursement month
+    const mainRes = (await client.query(
+      `SELECT ${reservationCols} ${reservationJoins}
+       WHERE l.owner_id = $1 AND r.disbursement_month = $2`,
       [ownerId, month]
     )).rows;
+
+    // Group 2: Airbnb long-stay installments from prior months
+    const longStayExtras = (await client.query(
+      `SELECT ${reservationCols} ${reservationJoins}
+       WHERE l.owner_id = $1
+         AND r.disbursement_month < $2
+         AND r.platform ILIKE '%airbnb%'
+         AND (r.check_out::date - r.check_in::date) >= 28
+         AND r.check_out::date > $3::date`,
+      [ownerId, month, start]
+    )).rows;
+
+    // Combine — filter long-stay extras to those with actual installment share > 0
+    const reservations = [...mainRes];
+    for (const r of longStayExtras) {
+      if (getInstallmentShare(r, month) > 0) reservations.push(r);
+    }
 
     // Get expenses for the month
     const expenses = (await client.query(
@@ -67,8 +90,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       [ownerId, start, end]
     )).rows;
 
-    // Calculate per-reservation — full amounts, no pro-rating.
-    // Each booking is assigned to the month its payout arrives (disbursement_month).
+    // Calculate per-reservation.
+    // Most bookings use full amounts (share=1). Airbnb 28+ night stays are
+    // pro-rated by installment share — only the portion paid in this month counts.
     let totalGross = 0;
     let totalChannelCommission = 0;
     let totalChannelPayout = 0;
@@ -80,13 +104,19 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const listingsWithBookings = new Set();
 
     const reservationDetails = reservations.map(r => {
-      const gross = roundCurrency(Number(r.gross_amount));
+      const share = getInstallmentShare(r, month);
+      const fullGross = roundCurrency(Number(r.gross_amount));
+      const gross = roundCurrency(fullGross * share);
 
       // Cleaning fee resolution: reservation → listing default fallback
-      const cleaningFee = roundCurrency(resolveCleaningFee(r));
+      // Only charge cleaning on the first installment (share containing check-in)
+      const fullCleaningFee = roundCurrency(resolveCleaningFee(r));
+      const isFirstInstallment = r.disbursement_month === month;
+      const cleaningFee = isFirstInstallment ? fullCleaningFee : 0;
 
-      // Platform fee: full amount
-      const platformFee = roundCurrency(Number(r.platform_fee));
+      // Platform fee: pro-rated by share
+      const fullPlatformFee = roundCurrency(Number(r.platform_fee));
+      const platformFee = roundCurrency(fullPlatformFee * share);
       const channelPayout = roundCurrency(gross - platformFee);
 
       // Management fee calculated on channel payout (incGST rate, BEFORE cleaning)
@@ -99,8 +129,8 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       const totalNights = Math.max(0, Math.round(
         (new Date(r.check_out) - new Date(r.check_in)) / 86400000
       ));
+      const periodNights = Math.round(totalNights * share);
 
-      // All reservations in this query are paid (payout month = this month)
       totalGross += gross;
       totalChannelCommission += platformFee;
       totalChannelPayout += channelPayout;
@@ -111,9 +141,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
 
       return {
         ...r,
-        calc_period_nights: totalNights,
+        calc_period_nights: periodNights,
         calc_total_nights: totalNights,
-        calc_prorate_share: 1,
+        calc_prorate_share: share,
         calc_channel_payout: channelPayout,
         calc_cleaning: cleaningFee,
         calc_net_income: channelPayout,

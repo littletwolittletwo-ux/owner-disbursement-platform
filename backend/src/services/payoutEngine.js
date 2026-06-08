@@ -128,6 +128,50 @@ export function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Airbnb pays monthly installments for stays >= 28 nights.
+ * First payout: ~1 biz day after check-in (covers first ~30 nights).
+ * Subsequent payouts: every ~30 days from first payout.
+ *
+ * Returns the share (0–1) of the booking that is paid out in `targetMonth`.
+ * For non-Airbnb or stays < 28 nights, returns 1.0.
+ */
+export function getInstallmentShare(reservation, targetMonth) {
+  const platform = normalizePlatform(reservation.platform);
+  const ci = toDateOnly(reservation.checkIn || reservation.check_in);
+  const co = toDateOnly(reservation.checkOut || reservation.check_out);
+  const totalNights = Math.max(0, Math.round(
+    (new Date(`${co}T00:00:00Z`) - new Date(`${ci}T00:00:00Z`)) / 86400000
+  ));
+
+  if (platform !== 'airbnb' || totalNights < 28) {
+    return 1.0;
+  }
+
+  // Calculate installment schedule
+  const firstPayoutDate = calculateExpectedPayoutDate(reservation);
+  let nightsAssigned = 0;
+  let installmentNum = 0;
+  let shareInMonth = 0;
+
+  while (nightsAssigned < totalNights) {
+    const payoutDate = installmentNum === 0
+      ? firstPayoutDate
+      : addDays(firstPayoutDate, installmentNum * 30);
+    const nightsInChunk = Math.min(30, totalNights - nightsAssigned);
+    const payoutMonth = monthKey(payoutDate);
+
+    if (payoutMonth === targetMonth) {
+      shareInMonth += nightsInChunk / totalNights;
+    }
+
+    nightsAssigned += nightsInChunk;
+    installmentNum++;
+  }
+
+  return roundCurrency(shareInMonth * 1000000) / 1000000;
+}
+
 export function getDefaultFeeRates() {
   return { ...DEFAULT_FEE_RATES };
 }

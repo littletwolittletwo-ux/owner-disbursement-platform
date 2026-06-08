@@ -1,6 +1,6 @@
 import { query } from '../db.js';
 import { getDisbursementDetail, channelLabel } from './disbursementEngine.js';
-import { normalizePlatform } from './payoutEngine.js';
+import { normalizePlatform, getInstallmentShare } from './payoutEngine.js';
 import { startEndForMonth } from '../utils/dates.js';
 
 // ── Colors ──
@@ -31,12 +31,14 @@ function shortDate(dateStr) {
 
 /**
  * Get reservations detail for a disbursement (for the reservation table).
- * Uses disbursement_month — full amounts, no pro-rating.
+ * Uses disbursement_month + Airbnb long-stay installment awareness.
  */
 async function getReservationDetails(disbursementId) {
   const { disbursement } = await getDisbursementDetail(disbursementId);
+  const { start } = startEndForMonth(disbursement.month);
 
-  const reservations = (await query(
+  // Primary: reservations whose first/only payout is this month
+  const mainRes = (await query(
     `SELECT r.*, l.name listing_name, l.address
      FROM reservations r
      JOIN listings l ON l.id = r.listing_id
@@ -46,11 +48,29 @@ async function getReservationDetails(disbursementId) {
     [disbursement.owner_id, disbursement.month]
   )).rows;
 
-  return reservations.map(r => {
+  // Airbnb long-stay installments from prior months
+  const longStayExtras = (await query(
+    `SELECT r.*, l.name listing_name, l.address
+     FROM reservations r
+     JOIN listings l ON l.id = r.listing_id
+     WHERE l.owner_id = $1
+       AND r.disbursement_month < $2
+       AND r.platform ILIKE '%airbnb%'
+       AND (r.check_out::date - r.check_in::date) >= 28
+       AND r.check_out::date > $3::date
+     ORDER BY r.check_in`,
+    [disbursement.owner_id, disbursement.month, start]
+  )).rows;
+
+  const allRes = [...mainRes, ...longStayExtras.filter(r => getInstallmentShare(r, disbursement.month) > 0)];
+
+  return allRes.map(r => {
     const totalNights = Math.max(0, Math.round(
       (new Date(r.check_out) - new Date(r.check_in)) / 86400000
     ));
-    return { ...r, periodNights: totalNights, totalNights, share: 1, periodGross: Number(r.gross_amount) };
+    const share = getInstallmentShare(r, disbursement.month);
+    const periodNights = Math.round(totalNights * share);
+    return { ...r, periodNights, totalNights, share, periodGross: Number(r.gross_amount) * share };
   });
 }
 
@@ -108,7 +128,7 @@ export async function generateReportHtml(disbursementId) {
   const expenseLines = lines.filter(l => l.type === 'expense');
   const utilityLines = lines.filter(l => l.type === 'utility');
 
-  const paidReservations = reservations;
+  const paidReservations = reservations.filter(r => r.share > 0);
   const totalGross = Number(disbursement.gross_channel_payout);
   const platformFees = Number(disbursement.platform_fees);
   const channelPayout = Number(disbursement.net_channel_revenue);
@@ -325,7 +345,7 @@ ${paidReservations.map(r => `        <tr>
           <td>${r.guest_name || 'Guest'}</td>
           <td>${shortDate(r.check_in)}</td>
           <td>${shortDate(r.check_out)}</td>
-          <td>${r.periodNights}</td>
+          <td>${r.periodNights}${r.share < 1 ? `/${r.totalNights}` : ''}</td>
           <td>${channelLabel(r.platform)}</td>
           <td class="amount">${formatMoney(r.periodGross)}</td>
         </tr>`).join('\n')}
