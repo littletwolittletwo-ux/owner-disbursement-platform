@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, withTransaction } from '../db.js';
 import { startEndForMonth } from '../utils/dates.js';
-import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate, countPeriodNights } from './payoutEngine.js';
+import { normalizePlatform, roundCurrency, calculateExpectedPayoutDate } from './payoutEngine.js';
 import { generateReportHtml, generateEmailBodyHtml } from './reportGenerator.js';
 import { renderHtmlToPdf } from './pdfRenderer.js';
 import { createGmailDraft, sendGmailDraft, deleteGmailDraft } from './gmailService.js';
@@ -32,8 +32,8 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const owner = (await client.query(`SELECT * FROM owners WHERE id=$1`, [ownerId])).rows[0];
     if (!owner) throw new Error('Owner not found');
 
-    // Get reservations whose CHECKOUT falls in this month.
-    // Straddlers (check-in before month start) are pro-rated by sleeping nights in month.
+    // Include bookings where BOTH checkout AND payout fall in this month.
+    // Full booking amounts — no pro-rating needed.
     const reservationCols = `r.*, l.name listing_name, l.address,
               l.platform_fee_rates, l.id as lid,
               l.management_fee_pct as listing_mgmt_fee_pct,
@@ -51,8 +51,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       `SELECT ${reservationCols} ${reservationJoins}
        WHERE l.owner_id = $1
          AND r.check_out >= $2 AND r.check_out <= $3
+         AND r.disbursement_month = $4
        ORDER BY r.check_in`,
-      [ownerId, start, end]
+      [ownerId, start, end, month]
     )).rows;
 
     // Get expenses for the month
@@ -66,9 +67,8 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       [ownerId, start, end]
     )).rows;
 
-    // Calculate per-reservation.
-    // Bookings fully within the month use full amounts (share=1).
-    // Straddlers (check-in before month start) are pro-rated by sleeping nights in month.
+    // Calculate per-reservation — full amounts, no pro-rating.
+    // Intersection rule: both checkout AND payout must fall in this month.
     let totalGross = 0;
     let totalChannelCommission = 0;
     let totalChannelPayout = 0;
@@ -80,18 +80,9 @@ export async function calculateOwnerDisbursement(ownerId, month) {
     const listingsWithBookings = new Set();
 
     const reservationDetails = reservations.map(r => {
-      const { periodNights, totalNights } = countPeriodNights(r.check_in, r.check_out, start, end);
-      const share = totalNights === 0 ? 0 : periodNights / totalNights;
-      const fullGross = roundCurrency(Number(r.gross_amount));
-      const gross = roundCurrency(fullGross * share);
-
-      // Cleaning fee: pro-rated by share (same proportion as nights)
-      const fullCleaningFee = roundCurrency(resolveCleaningFee(r));
-      const cleaningFee = roundCurrency(fullCleaningFee * share);
-
-      // Platform fee: pro-rated by share
-      const fullPlatformFee = roundCurrency(Number(r.platform_fee));
-      const platformFee = roundCurrency(fullPlatformFee * share);
+      const gross = roundCurrency(Number(r.gross_amount));
+      const cleaningFee = roundCurrency(resolveCleaningFee(r));
+      const platformFee = roundCurrency(Number(r.platform_fee));
       const channelPayout = roundCurrency(gross - platformFee);
 
       // Management fee calculated on channel payout (incGST rate, BEFORE cleaning)
@@ -110,11 +101,16 @@ export async function calculateOwnerDisbursement(ownerId, month) {
       totalMgmtFeeFull += mgmtFee;
       listingsWithBookings.add(r.lid);
 
+      // Calculate total nights for display purposes
+      const checkIn = new Date(r.check_in);
+      const checkOut = new Date(r.check_out);
+      const totalNights = Math.max(1, Math.round((checkOut - checkIn) / 86400000));
+
       return {
         ...r,
-        calc_period_nights: periodNights,
+        calc_period_nights: totalNights,
         calc_total_nights: totalNights,
-        calc_prorate_share: share,
+        calc_prorate_share: 1,
         calc_channel_payout: channelPayout,
         calc_cleaning: cleaningFee,
         calc_net_income: channelPayout,
@@ -193,30 +189,25 @@ export async function calculateOwnerDisbursement(ownerId, month) {
 
     // Line items per reservation (including unpaid, flagged)
     for (const r of reservationDetails) {
-      const unpaidTag = '';
-      const proRateNote = r.calc_prorate_share < 1
-        ? ` (${r.calc_period_nights}/${r.calc_total_nights} nights in period)`
-        : '';
-
       await insertLine(client, disbursement.id, 'gross_booking',
-        `${r.platform} - ${r.guest_name || 'Guest'} @ ${r.listing_name} (${r.check_in} to ${r.check_out})${proRateNote}${unpaidTag}`,
+        `${r.platform} - ${r.guest_name || 'Guest'} @ ${r.listing_name} (${r.check_in} to ${r.check_out})`,
         r.calc_period_gross, 'reservations', r.id,
-        { reservation_id: r.id, period_nights: r.calc_period_nights, total_nights: r.calc_total_nights, prorate_share: r.calc_prorate_share },
-        r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
+        { reservation_id: r.id, total_nights: r.calc_total_nights },
+        r.calc_period_nights, r.calc_total_nights, 1);
       await insertLine(client, disbursement.id, 'channel_commission',
-        `${r.platform} channel fee (${(Number(r.platform_fee) / Number(r.gross_amount) * 100).toFixed(1)}%)${proRateNote}${unpaidTag}`,
+        `${r.platform} channel fee (${(Number(r.platform_fee) / Number(r.gross_amount) * 100).toFixed(1)}%)`,
         -r.calc_platform_fee, 'reservations', r.id, {},
-        r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
+        r.calc_period_nights, r.calc_total_nights, 1);
       await insertLine(client, disbursement.id, 'management_fee',
-        `Management fee (incGST) on $${r.calc_channel_payout.toFixed(2)} net payout${proRateNote}${unpaidTag}`,
+        `Management fee (incGST) on $${r.calc_channel_payout.toFixed(2)} net payout`,
         -r.calc_mgmt_fee, 'commission_rules', null,
         { channel_payout: r.calc_channel_payout },
-        r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
+        r.calc_period_nights, r.calc_total_nights, 1);
       if (r.calc_cleaning > 0) {
         await insertLine(client, disbursement.id, 'cleaning',
-          `Cleaning - ${r.listing_name}${proRateNote}${unpaidTag}`,
+          `Cleaning - ${r.listing_name}`,
           -r.calc_cleaning, 'reservations', r.id, {},
-          r.calc_period_nights, r.calc_total_nights, r.calc_prorate_share);
+          r.calc_period_nights, r.calc_total_nights, 1);
       }
     }
 
